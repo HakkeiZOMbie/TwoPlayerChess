@@ -54,7 +54,7 @@ starting_board = strsToBoard [
 starting_state = State starting_board [] White
 
 
--- {- FUNCTIONS -}
+-- {- MAIN FUNCTIONS -}
 
 -- -- plays a given move
 -- play :: Move -> State -> State
@@ -114,7 +114,7 @@ chrToPiece char = case lower_char of
     'n' -> Knight player
     'b' -> Bishop player
     'q' -> Queen player
-    'k' -> Queen player
+    'k' -> King player
     _ -> Empty
     where 
         lower_char = toLower char
@@ -122,7 +122,8 @@ chrToPiece char = case lower_char of
 
 -- converts a list of strings to a board
 strsToBoard :: [String] -> Board
-strsToBoard str = [[Tile i j (chrToPiece piece) | (j,piece) <- zip [0..7] (str!!i)] | i <- [0..7]]
+strsToBoard str = [
+    [Tile i j (chrToPiece piece) | (j,piece) <- zip [0..7] (str!!i)] | i <- [0..7]]
 
 -- used show for tile
 instance Show Tile where
@@ -135,24 +136,24 @@ instance Show Tile where
 
 -- prints out the board
 printBoard :: Board -> IO ()
-printBoard board = putStrLn $ " 01234567\n" ++ concat [intToDigit i : (printTile <$> board!!i) ++ "\n" | i <- [0..7]]
+printBoard board = putStrLn $ concat [intToDigit i : (printTile <$> board!!i) ++ "\n" | i <- [7,6..0]] ++ "/01234567"
 
 -- prints out a tile
 printTile :: Tile -> Char
 printTile OutOfBoard = 'X'
 printTile (Tile _ _ piece) = case piece of
-    Pawn White -> '♟'
-    Pawn Black -> '♙'
-    Rook White -> '♜'
-    Rook Black -> '♖'
-    Knight White -> '♞'
-    Knight Black -> '♘'
-    Bishop White -> '♝'
-    Bishop Black -> '♗'
-    Queen White -> '♛'
-    Queen Black -> '♕'
-    King White -> '♚'
-    King Black -> '♔'
+    Pawn Black -> '♟'
+    Pawn White -> '♙'
+    Rook Black -> '♜'
+    Rook White -> '♖'
+    Knight Black -> '♞'
+    Knight White -> '♘'
+    Bishop Black -> '♝'
+    Bishop White -> '♗'
+    Queen Black -> '♛'
+    Queen White -> '♕'
+    King Black -> '♚'
+    King White -> '♔'
     Empty -> '☐'
 
     
