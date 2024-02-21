@@ -1,21 +1,25 @@
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Use camelCase" #-}
+
+import Data.Char ( intToDigit, toLower, isUpper)
+
+
 {- DATA and TYPES -}
 
 -- the game's state is its board state, additional flags, and the current 
 -- move's player
-{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
-{-# HLINT ignore "Use camelCase" #-}
 data State = State Board [Flag] Player
-    deriving (Eq, Show)
+    deriving (Eq)
 
 type Board = [[Tile]]
 
 -- a move moves a piece from one tile to another tile
 data Move = Move Tile Tile
-    deriving (Eq, Show)
+    deriving (Eq)
 
 -- Points to 8 other tiles and may have a piece on it
 data Tile = Tile Int Int Piece | OutOfBoard
-    deriving (Eq, Show)
+    deriving (Eq)
 
 -- 8 cardinal directions
 data Direction = NO | NE | EA | SE | SO | SW | WE | NW
@@ -38,7 +42,15 @@ data Flag = Castled | EnPassant | FiftyMoves
 {- CONSTANTS -}
 
 turn_order = [White, Black]
-starting_board = [[Tile i j Empty | j <- [0..7]] | i <- [0..7]]
+starting_board = strsToBoard [
+    "rnbqkbnr",
+    "pppppppp",
+    "________",
+    "________",
+    "________",
+    "________",
+    "PPPPPPPP",
+    "RNBQKBNR"]
 starting_state = State starting_board [] White
 
 
@@ -91,3 +103,56 @@ tilesAlong board (Tile i j _) dir =
             SW -> tileAt board (i-1) (j-1)
             WE -> tileAt board i (j-1)
             NW -> tileAt board (i+1) (j-1)
+
+
+{- UTILITIES -}
+-- getting pieces from chars. Used in board initialization
+chrToPiece :: Char -> Piece
+chrToPiece char = case lower_char of
+    'p' -> Pawn player
+    'r' -> Rook player
+    'n' -> Knight player
+    'b' -> Bishop player
+    'q' -> Queen player
+    'k' -> Queen player
+    _ -> Empty
+    where 
+        lower_char = toLower char
+        player = if isUpper char then White else Black
+
+-- converts a list of strings to a board
+strsToBoard :: [String] -> Board
+strsToBoard str = [[Tile i j (chrToPiece piece) | (j,piece) <- zip [0..7] (str!!i)] | i <- [0..7]]
+
+-- used show for tile
+instance Show Tile where
+    show :: Tile -> String
+    show OutOfBoard = "x"
+    show (Tile i j piece) = ['(', 
+        printTile (Tile i j piece), ',', 
+        intToDigit i, ',',  
+        intToDigit j, ')']
+
+-- prints out the board
+printBoard :: Board -> IO ()
+printBoard board = putStrLn $ " 01234567\n" ++ concat [intToDigit i : (printTile <$> board!!i) ++ "\n" | i <- [0..7]]
+
+-- prints out a tile
+printTile :: Tile -> Char
+printTile OutOfBoard = 'X'
+printTile (Tile _ _ piece) = case piece of
+    Pawn White -> '♟'
+    Pawn Black -> '♙'
+    Rook White -> '♜'
+    Rook Black -> '♖'
+    Knight White -> '♞'
+    Knight Black -> '♘'
+    Bishop White -> '♝'
+    Bishop Black -> '♗'
+    Queen White -> '♛'
+    Queen Black -> '♕'
+    King White -> '♚'
+    King Black -> '♔'
+    Empty -> '☐'
+
+    
