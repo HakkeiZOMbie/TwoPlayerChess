@@ -1,7 +1,7 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use camelCase" #-}
 
-import Data.Char ( intToDigit, toLower, isUpper)
+import Data.Char ( intToDigit, toLower, isUpper, digitToInt )
 
 
 {- DATA and TYPES -}
@@ -15,7 +15,7 @@ type Board = [[Tile]]
 
 -- a move moves a piece from one tile to another tile
 data Move = Move Tile Tile
-    deriving (Eq)
+    deriving (Eq, Show)
 
 -- Points to 8 other tiles and may have a piece on it
 data Tile = Tile Int Int Piece | OutOfBoard
@@ -59,8 +59,16 @@ starting_state = State starting_board [] White
 -- -- plays a given move
 -- play :: Move -> State -> State
 
--- -- reads move from string
--- readMove :: String -> Maybe Move
+-- reads move from string
+-- string should be in the form "0143" for "move piece in tile 0 1 to tile 4 3"
+readMove :: Board -> String -> Maybe Move
+readMove board [c1,c2,c3,c4] = 
+    if all (\c -> '0' <= c && c <= '7') [c1,c2,c3,c4] then
+        Just (Move 
+                (tileAt board (digitToInt c1) (digitToInt c2)) 
+                (tileAt board (digitToInt c3) (digitToInt c4)))
+    else Nothing
+readMove _ _ = Nothing
 
 -- -- checks whether a move is valid
 -- isValidMove :: Move -> State -> Bool
@@ -87,8 +95,7 @@ tileAt :: Board -> Int -> Int -> Tile
 tileAt board i j = if 0 <= i && i <= 7 && 0 <= j && j <= 7
     then board!!i!!j else OutOfBoard 
 
--- gets potentially reachable tiles that lie along 
--- some direction from a starting tile
+-- gets tiles in "line of sight" along some direction from a starting tile
 tilesAlong :: Board -> Tile -> Direction -> [Tile]
 tilesAlong board (Tile i j _) dir =
     case next_tile of
