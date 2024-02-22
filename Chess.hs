@@ -1,7 +1,8 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use camelCase" #-}
+{-# HLINT ignore "Redundant lambda" #-}
 
-import Data.Char ( intToDigit, toLower, isUpper, digitToInt )
+import Data.Char ( intToDigit, toLower, isUpper, digitToInt, ord, chr )
 
 
 {- DATA and TYPES -}
@@ -23,16 +24,17 @@ data Tile = Tile Int Int Piece | OutOfBoard
 
 -- 8 cardinal directions
 data Direction = NO | NE | EA | SE | SO | SW | WE | NW
+    deriving (Eq, Show)
 
 -- players. 
--- Note that we can add other colors and the logic shouldn't change...
 data Player = White | Black
     deriving (Eq, Show)
 
 -- constructor takes in the player the piece belongs to
-data Piece = Pawn Player | Rook Player | Knight Player 
-    | Bishop Player | Queen Player | King Player 
-    | Empty
+data Piece = Piece PieceName Player | Empty
+    deriving (Eq, Show)
+
+data PieceName = Pawn | Rook | Knight | Bishop | Queen | King
     deriving (Eq, Show)
 
 -- additional flags. Not sure how we represent these yet.
@@ -42,7 +44,7 @@ data Flag = Castled | EnPassant | FiftyMoves
 {- CONSTANTS -}
 
 turn_order = [White, Black]
-starting_board = strsToBoard [
+starting_board = strsToBoard (reverse [
     "rnbqkbnr",
     "pppppppp",
     "________",
@@ -50,7 +52,7 @@ starting_board = strsToBoard [
     "________",
     "________",
     "PPPPPPPP",
-    "RNBQKBNR"]
+    "RNBQKBNR"])
 starting_state = State starting_board [] White
 
 
@@ -62,38 +64,79 @@ starting_state = State starting_board [] White
 -- reads move from string
 -- string should be in the form "0143" for "move piece in tile 0 1 to tile 4 3"
 readMove :: Board -> String -> Maybe Move
-readMove board [c1,c2,c3,c4] = 
+readMove board [c1,c2,c3,c4] =
     if all (\c -> '0' <= c && c <= '7') [c1,c2,c3,c4] then
-        Just (Move 
-                (tileAt board (digitToInt c1) (digitToInt c2)) 
+        Just (Move
+                (tileAt board (digitToInt c1) (digitToInt c2))
                 (tileAt board (digitToInt c3) (digitToInt c4)))
     else Nothing
 readMove _ _ = Nothing
 
 -- -- checks whether a move is valid
+-- -- valid if
+-- --   1. move does not result in your own king being checked
+-- --   2. move does not land on an unreachable square
+-- --   3. move does not land on one of your own pieces
 -- isValidMove :: Move -> State -> Bool
 
--- -- checks whether a move results in player's king being checked
--- isCheck :: Move -> State -> Bool
+-- checks whether a player is in check
+isCheck :: Player -> Board -> Bool
+isCheck player board =
+    let 
+        kingTile = head (filter (\(Tile _ _ p) -> p == Piece King player) (concat board))
+        (Tile i j _) = kingTile
+        otherPlayer = oppPlayer player 
+    in
+        any (\(Tile _ _ p) -> p == Piece Knight otherPlayer) 
+            (tilesKnight board kingTile) &&
+        any (\(Tile _ _ p) -> p == Piece Bishop otherPlayer) 
+            (concat [tilesAlong board kingTile dir | dir <- [NE, SE, SW, NW]]) && 
+        any (\(Tile _ _ p) -> p == Piece Rook otherPlayer)
+            (concat [tilesAlong board kingTile dir | dir <- [NO, EA, SO, WE]]) && 
+        any (\(Tile _ _ p) -> p == Piece Queen otherPlayer)
+            (concat [tilesAlong board kingTile dir | dir <- [NO, NE, EA, SE, SO, SW, WE, NW]]) &&
+        any (\(Tile _ _ p) -> p == Piece Pawn otherPlayer) 
+            (tilesPawn board kingTile) &&
+        any (\(Tile _ _ p) -> p == Piece King otherPlayer) 
+            (tilesKing board kingTile)
 
--- -- checks whether a move is a checkmate
--- isMate :: Move -> State -> Bool
+
+-- checks whether a player has been checkmated
+-- isMate :: Player -> Board -> Bool
 
 
 {- HELPER FUNCTIONS -}
 
--- gets tiles potentially reachable by a knight
-tilesKnight :: Board -> Tile -> [Tile]
-tilesKnight board (Tile i j _) = [
-    tileAt board (i+2) (j+1), tileAt board (i+1) (j+2), 
-    tileAt board (i-1) (j+2), tileAt board (i-2) (j+1), 
-    tileAt board (i-2) (j-1), tileAt board (i-1) (j-2),
-    tileAt board (i+1) (j-2), tileAt board (i+2) (j-1)]
+-- gets the opposite player
+oppPlayer :: Player -> Player
+oppPlayer White = Black
+oppPlayer Black = White
 
 -- gets tile at coord
 tileAt :: Board -> Int -> Int -> Tile
 tileAt board i j = if 0 <= i && i <= 7 && 0 <= j && j <= 7
-    then board!!i!!j else OutOfBoard 
+    then board!!i!!j else OutOfBoard
+
+-- gets tiles potentially reachable by a knight
+tilesKnight :: Board -> Tile -> [Tile]
+tilesKnight board (Tile i j _) = [
+    tileAt board (i+2) (j+1), tileAt board (i+1) (j+2),
+    tileAt board (i-1) (j+2), tileAt board (i-2) (j+1),
+    tileAt board (i-2) (j-1), tileAt board (i-1) (j-2),
+    tileAt board (i+1) (j-2), tileAt board (i+2) (j-1)]
+
+-- gets tiles potentially reachable by a pawn
+tilesPawn :: Board -> Tile -> [Tile]
+tilesPawn board (Tile i j (Piece _ player)) = [
+        tileAt board (i+r) (j+1), tileAt board (i+r) (j-1)
+    ] where r = if player == White then 1 else -1
+
+tilesKing :: Board -> Tile -> [Tile]
+tilesKing board (Tile i j _) = [
+    tileAt board (i+1) j, tileAt board (i+1) (j+1),
+    tileAt board i (j+1), tileAt board (i-1) (j+1),
+    tileAt board (i-1) j, tileAt board (i-1) (j-1),
+    tileAt board i (j-1), tileAt board (i+1) (j-1)]
 
 -- gets tiles in "line of sight" along some direction from a starting tile
 tilesAlong :: Board -> Tile -> Direction -> [Tile]
@@ -116,14 +159,14 @@ tilesAlong board (Tile i j _) dir =
 -- getting pieces from chars. Used in board initialization
 chrToPiece :: Char -> Piece
 chrToPiece char = case lower_char of
-    'p' -> Pawn player
-    'r' -> Rook player
-    'n' -> Knight player
-    'b' -> Bishop player
-    'q' -> Queen player
-    'k' -> King player
+    'p' -> Piece Pawn player
+    'r' -> Piece Rook player
+    'n' -> Piece Knight player
+    'b' -> Piece Bishop player
+    'q' -> Piece Queen player
+    'k' -> Piece King player
     _ -> Empty
-    where 
+    where
         lower_char = toLower char
         player = if isUpper char then White else Black
 
@@ -136,9 +179,9 @@ strsToBoard str = [
 instance Show Tile where
     show :: Tile -> String
     show OutOfBoard = "x"
-    show (Tile i j piece) = ['(', 
-        printTile (Tile i j piece), ',', 
-        intToDigit i, ',',  
+    show (Tile i j piece) = ['(',
+        printTile (Tile i j piece), ',',
+        intToDigit i, ',',
         intToDigit j, ')']
 
 -- prints out the board
@@ -148,19 +191,13 @@ printBoard board = putStrLn $ concat [intToDigit i : (printTile <$> board!!i) ++
 -- prints out a tile
 printTile :: Tile -> Char
 printTile OutOfBoard = 'X'
-printTile (Tile _ _ piece) = case piece of
-    Pawn Black -> '♟'
-    Pawn White -> '♙'
-    Rook Black -> '♜'
-    Rook White -> '♖'
-    Knight Black -> '♞'
-    Knight White -> '♘'
-    Bishop Black -> '♝'
-    Bishop White -> '♗'
-    Queen Black -> '♛'
-    Queen White -> '♕'
-    King Black -> '♚'
-    King White -> '♔'
-    Empty -> '☐'
+printTile (Tile _ _ Empty) = '☐'
+printTile (Tile _ _ (Piece name player)) = chr ((if player == Black then 6 else 0) + ord (
+    case name of
+        Pawn -> '♙'
+        Rook -> '♖'
+        Knight -> '♘'
+        Bishop -> '♗'
+        Queen -> '♕'
+        King -> '♔'))
 
-    
