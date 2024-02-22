@@ -3,6 +3,7 @@
 {-# HLINT ignore "Redundant lambda" #-}
 
 import Data.Char ( intToDigit, toLower, isUpper, digitToInt, ord, chr )
+import Data.List (intersperse)
 
 
 {- DATA and TYPES -}
@@ -55,6 +56,16 @@ starting_board = strsToBoard (reverse [
     "RNBQKBNR"])
 starting_state = State starting_board [] White
 
+test_board = strsToBoard (reverse [
+    "rnb_kbnr",
+    "ppppqppp",
+    "________",
+    "________",
+    "________",
+    "________",
+    "PPPP_PPP",
+    "RNBQKBNR"])
+
 
 -- {- MAIN FUNCTIONS -}
 
@@ -82,23 +93,22 @@ readMove _ _ = Nothing
 -- checks whether a player is in check
 isCheck :: Player -> Board -> Bool
 isCheck player board =
-    let 
+        any (\(Tile _ _ p) -> p == Piece Knight otherPlayer) 
+            (tilesKnight board kingTile) ||
+        any (\(Tile _ _ p) -> p == Piece Bishop otherPlayer) 
+            (concat [tilesAlong board kingTile dir | dir <- [NE, SE, SW, NW]]) ||
+        any (\(Tile _ _ p) -> p == Piece Rook otherPlayer)
+            (concat [tilesAlong board kingTile dir | dir <- [NO, EA, SO, WE]]) ||
+        any (\(Tile _ _ p) -> p == Piece Queen otherPlayer)
+            (concat [tilesAlong board kingTile dir | dir <- [NO, NE, EA, SE, SO, SW, WE, NW]]) ||
+        any (\(Tile _ _ p) -> p == Piece Pawn otherPlayer) 
+            (tilesPawn board kingTile) ||
+        any (\(Tile _ _ p) -> p == Piece King otherPlayer) 
+            (tilesKing board kingTile)
+    where
         kingTile = head (filter (\(Tile _ _ p) -> p == Piece King player) (concat board))
         (Tile i j _) = kingTile
         otherPlayer = oppPlayer player 
-    in
-        any (\(Tile _ _ p) -> p == Piece Knight otherPlayer) 
-            (tilesKnight board kingTile) &&
-        any (\(Tile _ _ p) -> p == Piece Bishop otherPlayer) 
-            (concat [tilesAlong board kingTile dir | dir <- [NE, SE, SW, NW]]) && 
-        any (\(Tile _ _ p) -> p == Piece Rook otherPlayer)
-            (concat [tilesAlong board kingTile dir | dir <- [NO, EA, SO, WE]]) && 
-        any (\(Tile _ _ p) -> p == Piece Queen otherPlayer)
-            (concat [tilesAlong board kingTile dir | dir <- [NO, NE, EA, SE, SO, SW, WE, NW]]) &&
-        any (\(Tile _ _ p) -> p == Piece Pawn otherPlayer) 
-            (tilesPawn board kingTile) &&
-        any (\(Tile _ _ p) -> p == Piece King otherPlayer) 
-            (tilesKing board kingTile)
 
 
 -- checks whether a player has been checkmated
@@ -119,7 +129,7 @@ tileAt board i j = if 0 <= i && i <= 7 && 0 <= j && j <= 7
 
 -- gets tiles potentially reachable by a knight
 tilesKnight :: Board -> Tile -> [Tile]
-tilesKnight board (Tile i j _) = [
+tilesKnight board (Tile i j _) = filter (/= OutOfBoard) [
     tileAt board (i+2) (j+1), tileAt board (i+1) (j+2),
     tileAt board (i-1) (j+2), tileAt board (i-2) (j+1),
     tileAt board (i-2) (j-1), tileAt board (i-1) (j-2),
@@ -127,12 +137,12 @@ tilesKnight board (Tile i j _) = [
 
 -- gets tiles potentially reachable by a pawn
 tilesPawn :: Board -> Tile -> [Tile]
-tilesPawn board (Tile i j (Piece _ player)) = [
+tilesPawn board (Tile i j (Piece _ player)) = filter (/= OutOfBoard) [
         tileAt board (i+r) (j+1), tileAt board (i+r) (j-1)
     ] where r = if player == White then 1 else -1
 
 tilesKing :: Board -> Tile -> [Tile]
-tilesKing board (Tile i j _) = [
+tilesKing board (Tile i j _) = filter (/= OutOfBoard) [
     tileAt board (i+1) j, tileAt board (i+1) (j+1),
     tileAt board i (j+1), tileAt board (i-1) (j+1),
     tileAt board (i-1) j, tileAt board (i-1) (j-1),
@@ -143,6 +153,7 @@ tilesAlong :: Board -> Tile -> Direction -> [Tile]
 tilesAlong board (Tile i j _) dir =
     case next_tile of
         Tile _ _ Empty -> next_tile : tilesAlong board next_tile dir
+        OutOfBoard -> []
         _ -> [next_tile]
     where next_tile = case dir of
             NO -> tileAt board (i+1) j
@@ -186,7 +197,7 @@ instance Show Tile where
 
 -- prints out the board
 printBoard :: Board -> IO ()
-printBoard board = putStrLn $ concat [intToDigit i : (printTile <$> board!!i) ++ "\n" | i <- [7,6..0]] ++ "/01234567"
+printBoard board = putStrLn $ concat [intToDigit i : ' ' : intersperse ' ' (printTile <$> board!!i) ++ "\n" | i <- [7,6..0]] ++ "/ 0 1 2 3 4 5 6 7"
 
 -- prints out a tile
 printTile :: Tile -> Char
