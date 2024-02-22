@@ -72,6 +72,7 @@ test_board = strsToBoard (reverse [
 -- -- plays a given move
 -- play :: Move -> State -> State
 
+
 -- reads move from string
 -- string should be in the form "0143" for "move piece in tile 0 1 to tile 4 3"
 readMove :: Board -> String -> Maybe Move
@@ -96,11 +97,11 @@ isCheck player board =
         any (\(Tile _ _ p) -> p == Piece Knight otherPlayer) 
             (tilesKnight board kingTile) ||
         any (\(Tile _ _ p) -> p == Piece Bishop otherPlayer) 
-            (concat [tilesAlong board kingTile dir | dir <- [NE, SE, SW, NW]]) ||
+            (concat [tilesFromPiece board kingTile dir | dir <- [NE, SE, SW, NW]]) ||
         any (\(Tile _ _ p) -> p == Piece Rook otherPlayer)
-            (concat [tilesAlong board kingTile dir | dir <- [NO, EA, SO, WE]]) ||
+            (concat [tilesFromPiece board kingTile dir | dir <- [NO, EA, SO, WE]]) ||
         any (\(Tile _ _ p) -> p == Piece Queen otherPlayer)
-            (concat [tilesAlong board kingTile dir | dir <- [NO, NE, EA, SE, SO, SW, WE, NW]]) ||
+            (concat [tilesFromPiece board kingTile dir | dir <- [NO, NE, EA, SE, SO, SW, WE, NW]]) ||
         any (\(Tile _ _ p) -> p == Piece Pawn otherPlayer) 
             (tilesPawn board kingTile) ||
         any (\(Tile _ _ p) -> p == Piece King otherPlayer) 
@@ -122,6 +123,12 @@ oppPlayer :: Player -> Player
 oppPlayer White = Black
 oppPlayer Black = White
 
+-- if that tile is reachable by a player next turn
+isReachable :: Player -> Tile -> Bool
+isReachable _ OutOfBoard = False
+isReachable _ (Tile _ _ Empty) = True
+isReachable player (Tile _ _ (Piece _ otherPlayer)) = otherPlayer /= player
+
 -- gets tile at coord
 tileAt :: Board -> Int -> Int -> Tile
 tileAt board i j = if 0 <= i && i <= 7 && 0 <= j && j <= 7
@@ -129,7 +136,7 @@ tileAt board i j = if 0 <= i && i <= 7 && 0 <= j && j <= 7
 
 -- gets tiles potentially reachable by a knight
 tilesKnight :: Board -> Tile -> [Tile]
-tilesKnight board (Tile i j _) = filter (/= OutOfBoard) [
+tilesKnight board (Tile i j (Piece _ player)) = filter (isReachable player) [
     tileAt board (i+2) (j+1), tileAt board (i+1) (j+2),
     tileAt board (i-1) (j+2), tileAt board (i-2) (j+1),
     tileAt board (i-2) (j-1), tileAt board (i-1) (j-2),
@@ -137,16 +144,25 @@ tilesKnight board (Tile i j _) = filter (/= OutOfBoard) [
 
 -- gets tiles potentially reachable by a pawn
 tilesPawn :: Board -> Tile -> [Tile]
-tilesPawn board (Tile i j (Piece _ player)) = filter (/= OutOfBoard) [
+tilesPawn board (Tile i j (Piece _ player)) = filter (isReachable player) [
         tileAt board (i+r) (j+1), tileAt board (i+r) (j-1)
     ] where r = if player == White then 1 else -1
 
+-- gets tiles potentially reachable by a king
 tilesKing :: Board -> Tile -> [Tile]
-tilesKing board (Tile i j _) = filter (/= OutOfBoard) [
+tilesKing board (Tile i j (Piece _ player)) = filter (isReachable player) [
     tileAt board (i+1) j, tileAt board (i+1) (j+1),
     tileAt board i (j+1), tileAt board (i-1) (j+1),
     tileAt board (i-1) j, tileAt board (i-1) (j-1),
     tileAt board i (j-1), tileAt board (i+1) (j-1)]
+
+-- 
+tilesFromPiece :: Board -> Tile -> Direction -> [Tile]
+tilesFromPiece board tile dir =
+    case tile of
+        Tile _ _ (Piece _ player) -> filter (isReachable player) (tilesAlong board tile dir)
+        _ -> []
+
 
 -- gets tiles in "line of sight" along some direction from a starting tile
 tilesAlong :: Board -> Tile -> Direction -> [Tile]
@@ -155,7 +171,8 @@ tilesAlong board (Tile i j _) dir =
         Tile _ _ Empty -> next_tile : tilesAlong board next_tile dir
         OutOfBoard -> []
         _ -> [next_tile]
-    where next_tile = case dir of
+    where 
+        next_tile = case dir of
             NO -> tileAt board (i+1) j
             NE -> tileAt board (i+1) (j+1)
             EA -> tileAt board i (j+1)
