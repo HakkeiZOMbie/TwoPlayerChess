@@ -57,13 +57,13 @@ starting_board = strsToBoard (reverse [
 starting_state = State starting_board [] White
 
 test_board = strsToBoard (reverse [
-    "rnb_kbnr",
-    "ppppqppp",
+    "r_b_kbnr",
+    "pppp_ppp",
     "________",
     "________",
-    "________",
-    "________",
-    "PPPP_PPP",
+    "____q___",
+    "___n____",
+    "PPPPPPPP",
     "RNBQKBNR"])
 
 
@@ -97,11 +97,11 @@ isCheck player board =
         any (\(Tile _ _ p) -> p == Piece Knight otherPlayer) 
             (tilesKnight board kingTile) ||
         any (\(Tile _ _ p) -> p == Piece Bishop otherPlayer) 
-            (concat [tilesFromPiece board kingTile dir | dir <- [NE, SE, SW, NW]]) ||
+            (tilesBishop board kingTile) ||
         any (\(Tile _ _ p) -> p == Piece Rook otherPlayer)
-            (concat [tilesFromPiece board kingTile dir | dir <- [NO, EA, SO, WE]]) ||
+            (tilesRook board kingTile) ||
         any (\(Tile _ _ p) -> p == Piece Queen otherPlayer)
-            (concat [tilesFromPiece board kingTile dir | dir <- [NO, NE, EA, SE, SO, SW, WE, NW]]) ||
+            (tilesQueen board kingTile) ||
         any (\(Tile _ _ p) -> p == Piece Pawn otherPlayer) 
             (tilesPawn board kingTile) ||
         any (\(Tile _ _ p) -> p == Piece King otherPlayer) 
@@ -155,6 +155,15 @@ tilesKing board (Tile i j (Piece _ player)) = filter (isReachable player) [
     tileAt board i (j+1), tileAt board (i-1) (j+1),
     tileAt board (i-1) j, tileAt board (i-1) (j-1),
     tileAt board i (j-1), tileAt board (i+1) (j-1)]
+
+tilesQueen :: Board -> Tile -> [Tile]
+tilesQueen board tile = concat [tilesFromPiece board tile dir | dir <- [NO, NE, EA, SE, SO, SW, WE, NW]]
+
+tilesBishop :: Board -> Tile -> [Tile]
+tilesBishop board tile = concat [tilesFromPiece board tile dir | dir <- [NE, SE, SW, NW]]
+
+tilesRook :: Board -> Tile -> [Tile]
+tilesRook board tile = concat [tilesFromPiece board tile dir | dir <- [NO, SO, EA, WE]]
 
 -- 
 tilesFromPiece :: Board -> Tile -> Direction -> [Tile]
