@@ -70,7 +70,7 @@ test_board = strsToBoard (reverse [
     "_NBQKBNR"])
 test_state = State test_board [] White
 
-mate_board = strsToBoard (reverse [
+checkmate_board = strsToBoard (reverse [
     "rnbqkbnr",
     "pppppppp",
     "________",
@@ -80,7 +80,19 @@ mate_board = strsToBoard (reverse [
     "PPPPP__P",
     "RNBQKB_R"])
 
-mate_state = State mate_board [] White
+checkmate_state = State checkmate_board [] White
+
+stalemate_board = strsToBoard (reverse [
+    "k_______",
+    "_______R",
+    "________",
+    "________",
+    "________",
+    "________",
+    "_R______",
+    "K_______"])
+
+stalemate_state = State stalemate_board [] White
 
 
 -- {- MAIN FUNCTIONS -}
@@ -90,29 +102,33 @@ main = playGame starting_state
 playGame :: State -> IO State
 playGame state = do
     printBoard board
-    if isMate state then do
+    if isCheckmate state then do
             putStrLn ("Checkmate! " ++ show (oppPlayer player) ++ " wins")
             return state
-    else do
-        when (isCheck player board) (putStrLn "You are in check!")
-        putStrLn (show player ++ "'s turn")
-        putStrLn "Please enter a move (for example '1234' for 'move from 1 2 to 3 4') or 'q' to quit."
-        line <- getLine
-        if line == "q" then do
-            putStrLn "quitting..."
+    else 
+        if isStalemate state then do
+            putStrLn ("Stalemate...")
             return state
-        else
-            let maybeMove = readMove board line in
-                case maybeMove of
-                    Just move -> 
-                        if isValidMove move state then 
-                            playGame (play move state)
-                        else do
-                            putStrLn "illegal move!"
+        else do
+            when (isCheck player board) (putStrLn "You are in check!")
+            putStrLn (show player ++ "'s turn")
+            putStrLn "Please enter a move (for example '1234' for 'move from rank 1 file 2 to rank 3 file 4') or 'q' to quit."
+            line <- getLine
+            if line == "q" then do
+                putStrLn "quitting..."
+                return state
+            else
+                let maybeMove = readMove board line in
+                    case maybeMove of
+                        Just move -> 
+                            if isValidMove move state then 
+                                playGame (play move state)
+                            else do
+                                putStrLn "Illegal move!"
+                                playGame state
+                        Nothing -> do
+                            putStrLn "That's not a move!"
                             playGame state
-                    Nothing -> do
-                        putStrLn "invalid move!"
-                        playGame state
     where (State board flags player) = state
 
 
@@ -189,13 +205,21 @@ isCheck player board =
         (Tile i j _) = kingTile
         otherPlayer = oppPlayer player 
 
-
 -- checks whether a player has been checkmated
-isMate :: State -> Bool
-isMate state = all (\(State board _ _) -> isCheck player board) games
+isCheckmate :: State -> Bool
+isCheckmate state = isCheck player board && all (\move -> not (isValidMove move state)) moves
     where 
         (State board _ player) = state
-        games = [play move state | move <- moves]
+        moves = concat [
+            Move (Tile i j (Piece n p)) <$> tilesPiece board (Tile i j (Piece n p)) 
+            | Tile i j (Piece n p) <- concat board,
+            p == player]
+
+-- checks whether the game is a stalemate
+isStalemate :: State -> Bool
+isStalemate state = not (isCheck player board) && all (\move -> not (isValidMove move state)) moves
+    where 
+        (State board _ player) = state
         moves = concat [
             Move (Tile i j (Piece n p)) <$> tilesPiece board (Tile i j (Piece n p)) 
             | Tile i j (Piece n p) <- concat board,
