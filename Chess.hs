@@ -70,6 +70,32 @@ test_board = strsToBoard (reverse [
 
 
 -- {- MAIN FUNCTIONS -}
+main :: IO State
+main = playGame starting_state
+
+playGame :: State -> IO State
+playGame (State board flags player) = do
+    printBoard board
+    putStrLn (show player ++ "'s turn")
+    putStrLn "Please enter a move (for example '1234' for 'move from 1 2 to 3 4') or 'q' to quit."
+    line <- getLine
+    if line == "q" then
+        return (State board flags player)
+    else
+        let maybeMove = readMove board line in
+            case maybeMove of
+                Just move -> 
+                    if isValidMove move (State board flags player) then 
+                        playGame (play move (State board flags player))
+                    else do
+                        putStrLn "illegal move!"
+                        playGame (State board flags player)
+                Nothing -> do
+                    putStrLn "invalid move!"
+                    playGame (State board flags player)
+
+
+    
 
 -- -- plays a given move
 -- play :: Move -> State -> State
@@ -99,12 +125,14 @@ readMove _ _ = Nothing
 --   2. move does not land on an unreachable square
 isValidMove :: Move -> State -> Bool
 isValidMove (Move (Tile _ _ Empty) _) _ = False
-isValidMove (Move from to) (State board flags player) = 
-        not (isCheck player board) && 
-        to `elem` reachableTiles
+isValidMove (Move from to) (State board flags thisPlayer) = 
+        player == thisPlayer &&
+        not (isCheck thisPlayer next_board) && 
+        to `elem` reachable_tiles
     where
-        (Tile _ _ (Piece name _)) = from
-        reachableTiles = case name of
+        (State next_board _ _) = play (Move from to) (State board flags thisPlayer)
+        (Tile _ _ (Piece name player)) = from
+        reachable_tiles = case name of
             Pawn -> tilesPawn board from
             Rook -> tilesRook board from
             Knight -> tilesKnight board from
