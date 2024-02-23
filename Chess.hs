@@ -1,6 +1,8 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use camelCase" #-}
 {-# HLINT ignore "Redundant lambda" #-}
+{-# HLINT ignore "Use list comprehension" #-}
+{-# HLINT ignore "Use lambda-case" #-}
 
 import Data.Char ( intToDigit, toLower, isUpper, digitToInt, ord, chr )
 import Data.List (intersperse)
@@ -57,14 +59,14 @@ starting_board = strsToBoard (reverse [
 starting_state = State starting_board [] White
 
 test_board = strsToBoard (reverse [
-    "r_b_kbnr",
-    "pppp_ppp",
+    "rRb_kbnr",
+    "ppppPppp",
     "________",
     "________",
     "____q___",
-    "___n____",
+    "__n_____",
     "PPPPPPPP",
-    "RNBQKBNR"])
+    "_NBQKBNR"])
 
 
 -- {- MAIN FUNCTIONS -}
@@ -91,12 +93,25 @@ readMove board [c1,c2,c3,c4] =
     else Nothing
 readMove _ _ = Nothing
 
--- -- checks whether a move is valid
--- -- valid if
--- --   1. move does not result in your own king being checked
--- --   2. move does not land on an unreachable square
--- --   3. move does not land on one of your own pieces
--- isValidMove :: Move -> State -> Bool
+-- checks whether a move is valid
+-- valid if
+--   1. move does not result in your own king being checked
+--   2. move does not land on an unreachable square
+isValidMove :: Move -> State -> Bool
+isValidMove (Move (Tile _ _ Empty) _) _ = False
+isValidMove (Move from to) (State board flags player) = 
+        not (isCheck player board) && 
+        to `elem` reachableTiles
+    where
+        (Tile _ _ (Piece name _)) = from
+        reachableTiles = case name of
+            Pawn -> tilesPawn board from
+            Rook -> tilesRook board from
+            Knight -> tilesKnight board from
+            Bishop -> tilesBishop board from
+            Queen -> tilesQueen board from
+            King -> tilesKing board from
+
 
 -- checks whether a player is in check
 isCheck :: Player -> Board -> Bool
@@ -110,7 +125,7 @@ isCheck player board =
         any (\(Tile _ _ p) -> p == Piece Queen otherPlayer)
             (tilesQueen board kingTile) ||
         any (\(Tile _ _ p) -> p == Piece Pawn otherPlayer) 
-            (tilesPawn board kingTile) ||
+            (tilesPawnTake board kingTile) ||
         any (\(Tile _ _ p) -> p == Piece King otherPlayer) 
             (tilesKing board kingTile)
     where
@@ -149,11 +164,37 @@ tilesKnight board (Tile i j (Piece _ player)) = filter (isReachable player) [
     tileAt board (i-2) (j-1), tileAt board (i-1) (j-2),
     tileAt board (i+1) (j-2), tileAt board (i+2) (j-1)]
 
--- gets tiles potentially reachable by a pawn
 tilesPawn :: Board -> Tile -> [Tile]
-tilesPawn board (Tile i j (Piece _ player)) = filter (isReachable player) [
+tilesPawn board tile = tilesPawnMove board tile ++ tilesPawnTake board tile
+
+-- gets tiles capturable by a pawn
+tilesPawnTake :: Board -> Tile -> [Tile]
+tilesPawnTake board (Tile i j (Piece _ player)) = filter 
+    (\tile -> case tile of Tile _ _ (Piece _ otherPlayer) -> True; _ -> False) [
         tileAt board (i+r) (j+1), tileAt board (i+r) (j-1)
-    ] where r = if player == White then 1 else -1
+    ] where
+        r = if player == White then 1 else -1
+        otherPlayer = oppPlayer player
+
+tilesPawnMove :: Board -> Tile -> [Tile]
+tilesPawnMove board (Tile i j (Piece _ player)) =  
+    case (i, player) of
+        (1, White) -> 
+            case (tileAt board 2 j, tileAt board 3 j) of
+                (Tile 2 _ Empty, Tile 3 _ Empty) -> [Tile 2 j Empty, Tile 3 j Empty]
+                (Tile 2 _ Empty, _) -> [Tile 2 j Empty]
+                _ -> []
+        (6, Black) ->
+            case (tileAt board 5 j, tileAt board 4 j) of
+                (Tile 5 _ Empty, Tile 4 _ Empty) -> [Tile 5 j Empty, Tile 4 j Empty]
+                (Tile 5 _ Empty, _) -> [Tile 5 j Empty]
+                _ -> []
+        (_, White) -> if tileAt board (i+1) j == Tile (i+1) j Empty
+            then [Tile (i+1) j Empty] else []
+        (_, Black) -> if tileAt board (i-1) j == Tile (i-1) j Empty
+            then [Tile (i-1) j Empty] else []
+                
+                
 
 -- gets tiles potentially reachable by a king
 tilesKing :: Board -> Tile -> [Tile]
