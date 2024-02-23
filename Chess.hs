@@ -71,6 +71,13 @@ test_board = strsToBoard (reverse [
 
 -- -- plays a given move
 -- play :: Move -> State -> State
+play :: Move -> State -> State
+play (Move (Tile i1 j1 p1) (Tile i2 j2 _)) (State board flags player) = State 
+    [[ if i == i1 && j == j1 then 
+        Tile i j Empty
+      else if i == i2 && j == j2 then
+        Tile i j p1
+      else Tile i j p | (Tile i j p) <- rows ] | rows <- board] flags (oppPlayer player)
 
 
 -- reads move from string
