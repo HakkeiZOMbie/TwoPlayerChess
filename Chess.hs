@@ -5,7 +5,8 @@
 {-# HLINT ignore "Use lambda-case" #-}
 
 import Data.Char ( intToDigit, toLower, isUpper, digitToInt, ord, chr )
-import Data.List (intersperse)
+import Data.List ( intersperse )
+import Control.Monad ( when )
 
 
 {- DATA and TYPES -}
@@ -67,6 +68,19 @@ test_board = strsToBoard (reverse [
     "__n_____",
     "PPPPPPPP",
     "_NBQKBNR"])
+test_state = State test_board [] White
+
+mate_board = strsToBoard (reverse [
+    "rnbqkbnr",
+    "pppppppp",
+    "________",
+    "________",
+    "_______q",
+    "________",
+    "PPPPP__P",
+    "RNBQKB_R"])
+
+mate_state = State mate_board [] White
 
 
 -- {- MAIN FUNCTIONS -}
@@ -74,25 +88,32 @@ main :: IO State
 main = playGame starting_state
 
 playGame :: State -> IO State
-playGame (State board flags player) = do
+playGame state = do
     printBoard board
-    putStrLn (show player ++ "'s turn")
-    putStrLn "Please enter a move (for example '1234' for 'move from 1 2 to 3 4') or 'q' to quit."
-    line <- getLine
-    if line == "q" then
-        return (State board flags player)
-    else
-        let maybeMove = readMove board line in
-            case maybeMove of
-                Just move -> 
-                    if isValidMove move (State board flags player) then 
-                        playGame (play move (State board flags player))
-                    else do
-                        putStrLn "illegal move!"
-                        playGame (State board flags player)
-                Nothing -> do
-                    putStrLn "invalid move!"
-                    playGame (State board flags player)
+    if isMate state then do
+            putStrLn ("Checkmate! " ++ show (oppPlayer player) ++ " wins")
+            return state
+    else do
+        when (isCheck player board) (putStrLn "You are in check!")
+        putStrLn (show player ++ "'s turn")
+        putStrLn "Please enter a move (for example '1234' for 'move from 1 2 to 3 4') or 'q' to quit."
+        line <- getLine
+        if line == "q" then do
+            putStrLn "quitting..."
+            return state
+        else
+            let maybeMove = readMove board line in
+                case maybeMove of
+                    Just move -> 
+                        if isValidMove move state then 
+                            playGame (play move state)
+                        else do
+                            putStrLn "illegal move!"
+                            playGame state
+                    Nothing -> do
+                        putStrLn "invalid move!"
+                        playGame state
+    where (State board flags player) = state
 
 
     
@@ -131,14 +152,21 @@ isValidMove (Move from to) (State board flags thisPlayer) =
         to `elem` reachable_tiles
     where
         (State next_board _ _) = play (Move from to) (State board flags thisPlayer)
-        (Tile _ _ (Piece name player)) = from
-        reachable_tiles = case name of
-            Pawn -> tilesPawn board from
-            Rook -> tilesRook board from
-            Knight -> tilesKnight board from
-            Bishop -> tilesBishop board from
-            Queen -> tilesQueen board from
-            King -> tilesKing board from
+        (Tile _ _ (Piece _ player)) = from
+        reachable_tiles = tilesPiece board from
+
+-- tiles reachable by the piece (if any) on the tile
+tilesPiece :: Board -> Tile -> [Tile]
+tilesPiece _ (Tile _ _ Empty) = []
+tilesPiece board tile =
+    case name of
+            Pawn -> tilesPawn board tile
+            Rook -> tilesRook board tile
+            Knight -> tilesKnight board tile
+            Bishop -> tilesBishop board tile
+            Queen -> tilesQueen board tile
+            King -> tilesKing board tile
+    where (Tile _ _ (Piece name _)) = tile
 
 
 -- checks whether a player is in check
@@ -163,7 +191,15 @@ isCheck player board =
 
 
 -- checks whether a player has been checkmated
--- isMate :: Player -> Board -> Bool
+isMate :: State -> Bool
+isMate state = all (\(State board _ _) -> isCheck player board) games
+    where 
+        (State board _ player) = state
+        games = [play move state | move <- moves]
+        moves = concat [
+            Move (Tile i j (Piece n p)) <$> tilesPiece board (Tile i j (Piece n p)) 
+            | Tile i j (Piece n p) <- concat board,
+            p == player]
 
 
 {- HELPER FUNCTIONS -}
@@ -233,27 +269,26 @@ tilesKing board (Tile i j (Piece _ player)) = filter (isReachable player) [
     tileAt board i (j-1), tileAt board (i+1) (j-1)]
 
 tilesQueen :: Board -> Tile -> [Tile]
-tilesQueen board tile = concat [tilesFromPiece board tile dir | dir <- [NO, NE, EA, SE, SO, SW, WE, NW]]
+tilesQueen board tile = concat [tilesAlong board tile dir | dir <- [NO, NE, EA, SE, SO, SW, WE, NW]]
 
 tilesBishop :: Board -> Tile -> [Tile]
-tilesBishop board tile = concat [tilesFromPiece board tile dir | dir <- [NE, SE, SW, NW]]
+tilesBishop board tile = concat [tilesAlong board tile dir | dir <- [NE, SE, SW, NW]]
 
 tilesRook :: Board -> Tile -> [Tile]
-tilesRook board tile = concat [tilesFromPiece board tile dir | dir <- [NO, SO, EA, WE]]
-
--- 
-tilesFromPiece :: Board -> Tile -> Direction -> [Tile]
-tilesFromPiece board tile dir =
-    case tile of
-        Tile _ _ (Piece _ player) -> filter (isReachable player) (tilesAlong board tile dir)
-        _ -> []
-
+tilesRook board tile = concat [tilesAlong board tile dir | dir <- [NO, SO, EA, WE]]
 
 -- gets tiles in "line of sight" along some direction from a starting tile
 tilesAlong :: Board -> Tile -> Direction -> [Tile]
-tilesAlong board (Tile i j _) dir =
+tilesAlong board tile dir =
+    case tile of
+        Tile _ _ (Piece _ player) -> filter (isReachable player) (tilesAlongHelper board tile dir)
+        _ -> []
+
+-- recursive helper function for tilesAlong
+tilesAlongHelper :: Board -> Tile -> Direction -> [Tile]
+tilesAlongHelper board (Tile i j _) dir =
     case next_tile of
-        Tile _ _ Empty -> next_tile : tilesAlong board next_tile dir
+        Tile _ _ Empty -> next_tile : tilesAlongHelper board next_tile dir
         OutOfBoard -> []
         _ -> [next_tile]
     where 
