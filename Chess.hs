@@ -20,7 +20,7 @@ type Board = [[Tile]]
 
 -- a move moves a piece from one tile to another tile
 data Move = Move Tile Tile | Castle Tile Tile Tile Tile
-    deriving (Eq, Show)
+    deriving (Eq)
 
 -- Points to 8 other tiles and may have a piece on it
 data Tile = Tile Int Int Piece | OutOfBoard
@@ -117,13 +117,21 @@ playGame state = do
             when (isCheck player state) (putStrLn "You are in check!")
             putStrLn (show player ++ "'s turn")
             putStrLn "Please enter a move (for example '1234' for 'move from rank 1 file 2 to rank 3 file 4') or 'q' to quit."
+            putStrLn "Alternatively query moves for a tile by entering ? then the tile coords."
             line <- getLine
-            if line == "q" then do
-                putStrLn "quitting..."
-                return state
-            else
-                let maybeMove = readMove board line in
-                    case maybeMove of
+            case line of
+                "q" -> do
+                    putStrLn "quitting..."
+                    return state
+                ['?',i,j] -> do
+                    case readTile board [i,j] of
+                        Just tile -> do
+                            print (filter (\m -> isValidMove m state) (movesFromTile state tile))
+                        Nothing -> do
+                            putStrLn "wrong format!"
+                    playGame state
+                _ -> 
+                    case readMove board line of
                         Just move -> 
                             if isValidMove move state then 
                                 playGame (play move state)
@@ -159,6 +167,15 @@ readMove board [c1,c2,c3,c4] =
                 (tileAt board (digitToInt c3) (digitToInt c4)))
     else Nothing
 readMove _ _ = Nothing
+
+-- reads tile from string
+readTile :: Board -> String -> Maybe Tile
+readTile board [c1,c2] = 
+    if all (\c -> '0' <= c && c <= '7') [c1,c2] then
+        Just (tileAt board (digitToInt c1) (digitToInt c2))
+    else Nothing
+readTile _ _ = Nothing
+
 
 -- checks whether a move is valid
 -- valid if
@@ -400,6 +417,10 @@ instance Show Tile where
         printTile (Tile i j piece), ',',
         intToDigit i, ',',
         intToDigit j, ')']
+
+instance Show Move where
+    show :: Move -> String
+    show (Move from to) = show from ++ " -> " ++ show to
 
 -- prints out the board
 printBoard :: Board -> IO ()
