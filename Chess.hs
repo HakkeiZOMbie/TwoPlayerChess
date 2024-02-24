@@ -19,7 +19,7 @@ data State = State Board Flags Player
 type Board = [[Tile]]
 
 -- a move moves a piece from one tile to another tile
-data Move = Move Tile Tile
+data Move = Move Tile Tile | Castle Tile Tile Tile Tile
     deriving (Eq, Show)
 
 -- Points to 8 other tiles and may have a piece on it
@@ -355,7 +355,8 @@ castleMoves :: State -> Tile -> [Move]
 castleMoves state tile =
     let 
         (State board flags player) = state
-        i = case (tile, player, black_castled flags, isCheck player state) of
+        castled = if player == White then white_castled flags else black_castled flags
+        i = case (tile, player, castled, isCheck player state) of
             (Tile 7 4 (Piece King Black), Black, False, False) -> 7
             (Tile 0 4 (Piece King White), White, False, False) -> 0
             _ -> -1
