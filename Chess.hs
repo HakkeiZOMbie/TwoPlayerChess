@@ -18,7 +18,10 @@ data State = State Board Flags Player
 type Board = [[Tile]]
 
 -- a move moves a piece from one tile to another tile
-data Move = Move Tile Tile | Castle Tile Tile Tile Tile
+data Move = Move MoveType Tile Tile
+    deriving (Eq)
+
+data MoveType = Normal | Castle | EnPassant
     deriving (Eq)
 
 -- Points to 8 other tiles and may have a piece on it
@@ -42,8 +45,10 @@ data PieceName = Pawn | Rook | Knight | Bishop | Queen | King
 
 -- additional flags. Not sure how we represent these yet.
 data Flags = Flags { 
-    whiteCastled :: Bool,
-    blackCastled :: Bool,
+    whiteCastledKingSide :: Bool,
+    whiteCastledQueenSide :: Bool,
+    blackCastledKingSide :: Bool,
+    blackCastledQueenSide :: Bool,
     en_passant :: Int,
     fifty_moves :: Int 
     } deriving (Eq, Show)
@@ -60,7 +65,7 @@ startingBoard = strsToBoard (reverse [
     "________",
     "PPPPPPPP",
     "RNBQKBNR"])
-startingState = State startingBoard (Flags False False (-1) 0) White
+startingState = State startingBoard (Flags False False False False (-1) 0) White
 
 testBoard = strsToBoard (reverse [
     "r___k__r",
@@ -71,7 +76,7 @@ testBoard = strsToBoard (reverse [
     "__n_____",
     "PPPPPPPP",
     "_NBQKBNR"])
-testState = State testBoard (Flags False False (-1) 0) Black
+testState = State testBoard (Flags False False False False (-1) 0) Black
 
 checkmateBoard = strsToBoard (reverse [
     "rnbqkbnr",
@@ -83,7 +88,7 @@ checkmateBoard = strsToBoard (reverse [
     "PPPPP__P",
     "RNBQKB_R"])
 
-checkmateState = State checkmateBoard (Flags False False (-1) 0) White
+checkmateState = State checkmateBoard (Flags False False False False (-1) 0) White
 
 stalemateBoard = strsToBoard (reverse [
     "k_______",
@@ -95,7 +100,7 @@ stalemateBoard = strsToBoard (reverse [
     "_R______",
     "K_______"])
 
-stalemateState = State stalemateBoard (Flags False False (-1) 0) White
+stalemateState = State stalemateBoard (Flags False False False False (-1) 0) White
 
 
 -- {- MAIN FUNCTIONS -}
@@ -143,17 +148,40 @@ playGame state = do
     where (State board flags player) = state
 
 
-    
-
--- -- plays a given move
--- play :: Move -> State -> State
-play :: Move -> State -> State
-play (Move (Tile i1 j1 p1) (Tile i2 j2 _)) (State board flags player) = State 
+setTile :: Tile -> Board -> Board
+setTile (Tile i1 j1 p1) board = 
     [[ if i == i1 && j == j1 then 
-        Tile i j Empty
-      else if i == i2 && j == j2 then
-        Tile i j p1
-      else Tile i j p | (Tile i j p) <- rows ] | rows <- board] flags (oppPlayer player)
+            Tile i j p1
+        else Tile i j p | (Tile i j p) <- rows ] | rows <- board ]
+
+-- plays a given move
+play :: Move -> State -> State
+play (Move Castle (Tile i _ (Piece King player)) (Tile _ j Empty)) state =
+        State 
+            ((setTile (Tile i j1 Empty) . setTile (Tile i j2 (Piece Rook player))) board) 
+            flags nextPlayer
+    where 
+        State board flags nextPlayer = 
+            play (Move Normal (Tile i 4 (Piece King player)) (Tile i j Empty)) state
+        j1 = if j == 2 then 0 else 7
+        j2 = if j == 2 then 3 else 5
+
+play (Move Normal from to) (State board flags player) = State 
+        ((setTile (Tile i1 j1 Empty) . setTile (Tile i2 j2 p1)) board)
+        (case from of
+            Tile _ _ (Piece King White) -> 
+                flags { whiteCastledKingSide = True, whiteCastledQueenSide = True }
+            Tile _ _ (Piece King Black) ->
+                flags { blackCastledKingSide = True, blackCastledQueenSide = True }
+            Tile 0 0 _ -> flags { whiteCastledQueenSide = True }
+            Tile 0 7 _ -> flags { whiteCastledKingSide = True }
+            Tile 7 0 _ -> flags { blackCastledQueenSide = True }
+            Tile 7 7 _ -> flags { blackCastledQueenSide = True }
+            _ -> flags)
+        (oppPlayer player)
+    where
+        (Tile i1 j1 p1) = from
+        (Tile i2 j2 _) = to
 
 
 -- reads move from string
@@ -161,9 +189,12 @@ play (Move (Tile i1 j1 p1) (Tile i2 j2 _)) (State board flags player) = State
 readMove :: Board -> String -> Maybe Move
 readMove board [c1,c2,c3,c4] =
     if all (\c -> '0' <= c && c <= '7') [c1,c2,c3,c4] then
-        Just (Move
-                (tileAt board (digitToInt c1) (digitToInt c2))
-                (tileAt board (digitToInt c3) (digitToInt c4)))
+        let 
+            Tile i1 j1 p1 = tileAt board (digitToInt c1) (digitToInt c2)
+            Tile i2 j2 p2 = tileAt board (digitToInt c3) (digitToInt c4)
+        in case (p1, abs (j1-j2)) of 
+            (Piece King _, 2) -> Just (Move Castle (Tile i1 j1 p1) (Tile i2 j2 p2))
+            _ -> Just (Move Normal (Tile i1 j1 p1) (Tile i2 j2 p2))
     else Nothing
 readMove _ _ = Nothing
 
@@ -181,13 +212,13 @@ readTile _ _ = Nothing
 --   1. move does not result in your own king being checked
 --   2. move does not land on an unreachable square
 isValidMove :: Move -> State -> Bool
-isValidMove (Move (Tile _ _ Empty) _) _ = False
+isValidMove (Move _ (Tile _ _ Empty) _) _ = False
 isValidMove move state = 
         player == thisPlayer &&
         not (isCheck thisPlayer nextState) && 
         move `elem` moves
     where
-        (Move from to) = move
+        (Move _ from to) = move
         (Tile _ _ (Piece _ player)) = from
         (State board flags thisPlayer) = state
         nextState = play move state
@@ -212,17 +243,17 @@ tileMoves state tile =
 -- checks whether a player is in check
 isCheck :: Player -> State -> Bool
 isCheck player state =
-        any (\(Move _ (Tile _ _ p)) -> p == Piece Knight otherPlayer) 
+        any (\(Move _ _ (Tile _ _ p)) -> p == Piece Knight otherPlayer) 
             (knightMoves state kingTile) ||
-        any (\(Move _ (Tile _ _ p)) -> p == Piece Bishop otherPlayer) 
+        any (\(Move _ _ (Tile _ _ p)) -> p == Piece Bishop otherPlayer) 
             (bishopMoves state kingTile) ||
-        any (\(Move _ (Tile _ _ p)) -> p == Piece Rook otherPlayer)
+        any (\(Move _ _ (Tile _ _ p)) -> p == Piece Rook otherPlayer)
             (rookMoves state kingTile) ||
-        any (\(Move _ (Tile _ _ p)) -> p == Piece Queen otherPlayer)
+        any (\(Move _ _ (Tile _ _ p)) -> p == Piece Queen otherPlayer)
             (queenMoves state kingTile) ||
-        any (\(Move _ (Tile _ _ p)) -> p == Piece Pawn otherPlayer) 
+        any (\(Move _ _ (Tile _ _ p)) -> p == Piece Pawn otherPlayer) 
             (pawnMovesTake state kingTile) ||
-        any (\(Move _ (Tile _ _ p)) -> p == Piece King otherPlayer) 
+        any (\(Move _ _ (Tile _ _ p)) -> p == Piece King otherPlayer) 
             (kingMovesBase state kingTile)
     where
         kingTile = head (filter (\(Tile _ _ p) -> p == Piece King player) (concat board))
@@ -276,7 +307,7 @@ tileAt board i j = if 0 <= i && i <= 7 && 0 <= j && j <= 7
 
 -- gets tiles potentially reachable by a knight
 knightMoves :: State -> Tile -> [Move]
-knightMoves (State board _ _) tile = Move tile <$> filter (isReachable player) [
+knightMoves (State board _ _) tile = Move Normal tile <$> filter (isReachable player) [
         tileAt board (i+2) (j+1), tileAt board (i+1) (j+2),
         tileAt board (i-1) (j+2), tileAt board (i-2) (j+1),
         tileAt board (i-2) (j-1), tileAt board (i-1) (j-2),
@@ -289,14 +320,14 @@ pawnMoves state tile = pawnMovesMove state tile ++ pawnMovesTake state tile
 
 -- gets tiles capturable by a pawn
 pawnMovesTake :: State -> Tile -> [Move]
-pawnMovesTake (State board _ _) tile = Move tile <$>
+pawnMovesTake (State board _ _) tile = Move Normal tile <$>
         filter (isOppPiece player) [tileAt board (i+r) (j+1), tileAt board (i+r) (j-1)] 
     where 
         (Tile i j (Piece _ player)) = tile
         r = if player == White then 1 else -1
 
 pawnMovesMove :: State -> Tile -> [Move]
-pawnMovesMove (State board _ _) tile = Move tile <$>
+pawnMovesMove (State board _ _) tile = Move Normal tile <$>
     case (i, player) of
         (1, White) -> 
             case (tileAt board 2 j, tileAt board 3 j) of
@@ -321,7 +352,7 @@ kingMoves state tile = kingMovesBase state tile ++ castleMoves state tile
                 
 -- gets tiles potentially reachable by a king (no castling)
 kingMovesBase :: State -> Tile -> [Move]
-kingMovesBase state tile = Move tile <$> filter (isReachable player) [
+kingMovesBase state tile = Move Normal tile <$> filter (isReachable player) [
         tileAt board (i+1) j, tileAt board (i+1) (j+1),
         tileAt board i (j+1), tileAt board (i-1) (j+1),
         tileAt board (i-1) j, tileAt board (i-1) (j-1),
@@ -331,15 +362,15 @@ kingMovesBase state tile = Move tile <$> filter (isReachable player) [
         (State board flags _) = state
 
 queenMoves :: State -> Tile -> [Move]
-queenMoves (State board _ _) tile = Move tile <$> 
+queenMoves (State board _ _) tile = Move Normal tile <$> 
     concat [alongMoves board tile dir | dir <- [NO, NE, EA, SE, SO, SW, WE, NW]]
 
 bishopMoves :: State -> Tile -> [Move]
-bishopMoves (State board _ _) tile = Move tile <$> 
+bishopMoves (State board _ _) tile = Move Normal tile <$> 
     concat [alongMoves board tile dir | dir <- [NE, SE, SW, NW]]
 
 rookMoves :: State -> Tile -> [Move]
-rookMoves (State board _ _) tile = Move tile <$>
+rookMoves (State board _ _) tile = Move Normal tile <$>
     concat [alongMoves board tile dir | dir <- [NO, SO, EA, WE]]
 
 -- gets tiles in "line of sight" along some direction from a starting tile
@@ -371,14 +402,14 @@ castleMoves :: State -> Tile -> [Move]
 castleMoves state tile =
     let 
         (State board flags player) = state
-        castled = if player == White then whiteCastled flags else blackCastled flags
+        castled = if player == White then whiteCastledKingSide flags else blackCastledKingSide flags
         i = case (tile, player, castled, isCheck player state) of
             (Tile 7 4 (Piece King Black), Black, False, False) -> 7
             (Tile 0 4 (Piece King White), White, False, False) -> 0
             _ -> -1
     in 
         if i /= -1 then
-            Move tile <$> (
+            Move Castle tile <$> (
                 (if take 5 ((\(Tile _ _ piece) -> piece) <$> board!!i) == [Piece Rook player, Empty, Empty, Empty, Piece King player] then
                     [Tile i 2 Empty]
                 else []) ++
@@ -419,7 +450,12 @@ instance Show Tile where
 
 instance Show Move where
     show :: Move -> String
-    show (Move from to) = show from ++ " -> " ++ show to
+    show (Move mtype from to) = show from ++ 
+        case mtype of 
+            Normal -> " --> "
+            Castle -> " o-o "
+            EnPassant -> " ep." 
+        ++ show to
 
 -- prints out the board
 printBoard :: Board -> IO ()
