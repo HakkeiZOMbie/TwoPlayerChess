@@ -1,5 +1,4 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
-{-# HLINT ignore "Use camelCase" #-}
 {-# HLINT ignore "Redundant lambda" #-}
 {-# HLINT ignore "Use list comprehension" #-}
 {-# HLINT ignore "Use lambda-case" #-}
@@ -43,16 +42,16 @@ data PieceName = Pawn | Rook | Knight | Bishop | Queen | King
 
 -- additional flags. Not sure how we represent these yet.
 data Flags = Flags { 
-    white_castled :: Bool,
-    black_castled :: Bool,
+    whiteCastled :: Bool,
+    blackCastled :: Bool,
     en_passant :: Int,
-    fiftyMoves :: Int 
+    fifty_moves :: Int 
     } deriving (Eq, Show)
 
 {- CONSTANTS -}
 
-turn_order = [White, Black]
-starting_board = strsToBoard (reverse [
+turnOrder = [White, Black]
+startingBoard = strsToBoard (reverse [
     "rnbqkbnr",
     "pppppppp",
     "________",
@@ -61,9 +60,9 @@ starting_board = strsToBoard (reverse [
     "________",
     "PPPPPPPP",
     "RNBQKBNR"])
-starting_state = State starting_board (Flags False False (-1) 0) White
+startingState = State startingBoard (Flags False False (-1) 0) White
 
-test_board = strsToBoard (reverse [
+testBoard = strsToBoard (reverse [
     "r___k__r",
     "ppppPppp",
     "________",
@@ -72,9 +71,9 @@ test_board = strsToBoard (reverse [
     "__n_____",
     "PPPPPPPP",
     "_NBQKBNR"])
-test_state = State test_board (Flags False False (-1) 0) Black
+testState = State testBoard (Flags False False (-1) 0) Black
 
-checkmate_board = strsToBoard (reverse [
+checkmateBoard = strsToBoard (reverse [
     "rnbqkbnr",
     "pppppppp",
     "________",
@@ -84,9 +83,9 @@ checkmate_board = strsToBoard (reverse [
     "PPPPP__P",
     "RNBQKB_R"])
 
-checkmate_state = State checkmate_board (Flags False False (-1) 0) White
+checkmateState = State checkmateBoard (Flags False False (-1) 0) White
 
-stalemate_board = strsToBoard (reverse [
+stalemateBoard = strsToBoard (reverse [
     "k_______",
     "_______R",
     "________",
@@ -96,12 +95,12 @@ stalemate_board = strsToBoard (reverse [
     "_R______",
     "K_______"])
 
-stalemate_state = State stalemate_board (Flags False False (-1) 0) White
+stalemateState = State stalemateBoard (Flags False False (-1) 0) White
 
 
 -- {- MAIN FUNCTIONS -}
 main :: IO State
-main = playGame starting_state
+main = playGame startingState
 
 playGame :: State -> IO State
 playGame state = do
@@ -117,7 +116,7 @@ playGame state = do
             when (isCheck player state) (putStrLn "You are in check!")
             putStrLn (show player ++ "'s turn")
             putStrLn "Please enter a move (for example '1234' for 'move from rank 1 file 2 to rank 3 file 4') or 'q' to quit."
-            putStrLn "Alternatively query moves for a tile by entering ? then the tile coords."
+            putStrLn "Alternatively query moves for a tile by entering ? then the tile coords. (e.g. ?32)"
             line <- getLine
             case line of
                 "q" -> do
@@ -126,7 +125,7 @@ playGame state = do
                 ['?',i,j] -> do
                     case readTile board [i,j] of
                         Just tile -> do
-                            print (filter (\m -> isValidMove m state) (movesFromTile state tile))
+                            print (filter (\m -> isValidMove m state) (tileMoves state tile))
                         Nothing -> do
                             putStrLn "wrong format!"
                     playGame state
@@ -139,7 +138,7 @@ playGame state = do
                                 putStrLn "Illegal move!"
                                 playGame state
                         Nothing -> do
-                            putStrLn "That's not a move!"
+                            putStrLn "wrong format!"
                             playGame state
     where (State board flags player) = state
 
@@ -185,19 +184,19 @@ isValidMove :: Move -> State -> Bool
 isValidMove (Move (Tile _ _ Empty) _) _ = False
 isValidMove move state = 
         player == thisPlayer &&
-        not (isCheck thisPlayer next_state) && 
+        not (isCheck thisPlayer nextState) && 
         move `elem` moves
     where
         (Move from to) = move
         (Tile _ _ (Piece _ player)) = from
         (State board flags thisPlayer) = state
-        next_state = play move state
-        moves = movesFromTile state from
+        nextState = play move state
+        moves = tileMoves state from
 
 -- tiles reachable by the piece (if any) on the tile
-movesFromTile :: State -> Tile -> [Move]
-movesFromTile _ (Tile _ _ Empty) = []
-movesFromTile state tile =
+tileMoves :: State -> Tile -> [Move]
+tileMoves _ (Tile _ _ Empty) = []
+tileMoves state tile =
     case name of
             Pawn -> pawnMoves state tile
             Rook -> rookMoves state tile
@@ -236,7 +235,7 @@ isCheckmate :: State -> Bool
 isCheckmate state = isCheck player state && all (\move -> not (isValidMove move state)) moves
     where 
         (State board _ player) = state
-        moves = concat [movesFromTile state (Tile i j (Piece n p)) 
+        moves = concat [tileMoves state (Tile i j (Piece n p)) 
             | Tile i j (Piece n p) <- concat board,
             p == player]
 
@@ -246,7 +245,7 @@ isStalemate state = not (isCheck player state) && all (\move -> not (isValidMove
     where 
         (State board _ player) = state
         moves = concat [
-            movesFromTile state (Tile i j (Piece n p)) 
+            tileMoves state (Tile i j (Piece n p)) 
             | Tile i j (Piece n p) <- concat board,
             p == player]
 
@@ -353,12 +352,12 @@ alongMoves board tile dir =
 -- recursive helper function for alongMoves
 alongMovesHelper :: Board -> Tile -> Direction -> [Tile]
 alongMovesHelper board (Tile i j _) dir =
-    case next_tile of
-        Tile _ _ Empty -> next_tile : alongMovesHelper board next_tile dir
+    case nextTile of
+        Tile _ _ Empty -> nextTile : alongMovesHelper board nextTile dir
         OutOfBoard -> []
-        _ -> [next_tile]
+        _ -> [nextTile]
     where 
-        next_tile = case dir of
+        nextTile = case dir of
             NO -> tileAt board (i+1) j
             NE -> tileAt board (i+1) (j+1)
             EA -> tileAt board i (j+1)
@@ -372,7 +371,7 @@ castleMoves :: State -> Tile -> [Move]
 castleMoves state tile =
     let 
         (State board flags player) = state
-        castled = if player == White then white_castled flags else black_castled flags
+        castled = if player == White then whiteCastled flags else blackCastled flags
         i = case (tile, player, castled, isCheck player state) of
             (Tile 7 4 (Piece King Black), Black, False, False) -> 7
             (Tile 0 4 (Piece King White), White, False, False) -> 0
@@ -392,7 +391,7 @@ castleMoves state tile =
 {- UTILITIES -}
 -- getting pieces from chars. Used in board initialization
 chrToPiece :: Char -> Piece
-chrToPiece char = case lower_char of
+chrToPiece char = case lowerChar of
     'p' -> Piece Pawn player
     'r' -> Piece Rook player
     'n' -> Piece Knight player
@@ -401,7 +400,7 @@ chrToPiece char = case lower_char of
     'k' -> Piece King player
     _ -> Empty
     where
-        lower_char = toLower char
+        lowerChar = toLower char
         player = if isUpper char then White else Black
 
 -- converts a list of strings to a board
