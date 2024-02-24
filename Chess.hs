@@ -13,7 +13,7 @@ import Control.Monad ( when )
 
 -- the game's state is its board state, additional flags, and the current 
 -- move's player
-data State = State Board [Flag] Player
+data State = State Board Flags Player
     deriving (Eq)
 
 type Board = [[Tile]]
@@ -42,8 +42,12 @@ data PieceName = Pawn | Rook | Knight | Bishop | Queen | King
     deriving (Eq, Show)
 
 -- additional flags. Not sure how we represent these yet.
-data Flag = Castled | EnPassant | FiftyMoves
-    deriving (Eq, Show)
+data Flags = Flags { 
+    white_castled :: Bool,
+    black_castled :: Bool,
+    en_passant :: Int,
+    fiftyMoves :: Int 
+    } deriving (Eq, Show)
 
 {- CONSTANTS -}
 
@@ -57,10 +61,10 @@ starting_board = strsToBoard (reverse [
     "________",
     "PPPPPPPP",
     "RNBQKBNR"])
-starting_state = State starting_board [] White
+starting_state = State starting_board (Flags True True (-1) 0) White
 
 test_board = strsToBoard (reverse [
-    "rRb_kbnr",
+    "r___k__r",
     "ppppPppp",
     "________",
     "________",
@@ -68,7 +72,7 @@ test_board = strsToBoard (reverse [
     "__n_____",
     "PPPPPPPP",
     "_NBQKBNR"])
-test_state = State test_board [] White
+test_state = State test_board (Flags True True (-1) 0) Black
 
 checkmate_board = strsToBoard (reverse [
     "rnbqkbnr",
@@ -80,7 +84,7 @@ checkmate_board = strsToBoard (reverse [
     "PPPPP__P",
     "RNBQKB_R"])
 
-checkmate_state = State checkmate_board [] White
+checkmate_state = State checkmate_board (Flags True True (-1) 0) White
 
 stalemate_board = strsToBoard (reverse [
     "k_______",
@@ -92,7 +96,7 @@ stalemate_board = strsToBoard (reverse [
     "_R______",
     "K_______"])
 
-stalemate_state = State stalemate_board [] White
+stalemate_state = State stalemate_board (Flags False False (-1) 0) White
 
 
 -- {- MAIN FUNCTIONS -}
@@ -110,7 +114,7 @@ playGame state = do
             putStrLn ("Stalemate...")
             return state
         else do
-            when (isCheck player board) (putStrLn "You are in check!")
+            when (isCheck player state) (putStrLn "You are in check!")
             putStrLn (show player ++ "'s turn")
             putStrLn "Please enter a move (for example '1234' for 'move from rank 1 file 2 to rank 3 file 4') or 'q' to quit."
             line <- getLine
@@ -162,66 +166,70 @@ readMove _ _ = Nothing
 --   2. move does not land on an unreachable square
 isValidMove :: Move -> State -> Bool
 isValidMove (Move (Tile _ _ Empty) _) _ = False
-isValidMove (Move from to) (State board flags thisPlayer) = 
+isValidMove (Move from to) state = 
         player == thisPlayer &&
-        not (isCheck thisPlayer next_board) && 
+        not (isCheck thisPlayer next_state) && 
         to `elem` reachable_tiles
     where
-        (State next_board _ _) = play (Move from to) (State board flags thisPlayer)
+        next_state = play (Move from to) state
         (Tile _ _ (Piece _ player)) = from
-        reachable_tiles = tilesPiece board from
+        (State board flags thisPlayer) = state
+        reachable_tiles = tilesPiece state from
 
 -- tiles reachable by the piece (if any) on the tile
-tilesPiece :: Board -> Tile -> [Tile]
+tilesPiece :: State -> Tile -> [Tile]
 tilesPiece _ (Tile _ _ Empty) = []
-tilesPiece board tile =
+tilesPiece state tile =
     case name of
-            Pawn -> tilesPawn board tile
-            Rook -> tilesRook board tile
-            Knight -> tilesKnight board tile
-            Bishop -> tilesBishop board tile
-            Queen -> tilesQueen board tile
-            King -> tilesKing board tile
-    where (Tile _ _ (Piece name _)) = tile
+            Pawn -> tilesPawn state tile
+            Rook -> tilesRook state tile
+            Knight -> tilesKnight state tile
+            Bishop -> tilesBishop state tile
+            Queen -> tilesQueen state tile
+            King -> tilesKing state tile
+    where 
+        (Tile _ _ (Piece name _)) = tile
+        (State board flags player) = state
 
 
 -- checks whether a player is in check
-isCheck :: Player -> Board -> Bool
-isCheck player board =
+isCheck :: Player -> State -> Bool
+isCheck player state =
         any (\(Tile _ _ p) -> p == Piece Knight otherPlayer) 
-            (tilesKnight board kingTile) ||
+            (tilesKnight state kingTile) ||
         any (\(Tile _ _ p) -> p == Piece Bishop otherPlayer) 
-            (tilesBishop board kingTile) ||
+            (tilesBishop state kingTile) ||
         any (\(Tile _ _ p) -> p == Piece Rook otherPlayer)
-            (tilesRook board kingTile) ||
+            (tilesRook state kingTile) ||
         any (\(Tile _ _ p) -> p == Piece Queen otherPlayer)
-            (tilesQueen board kingTile) ||
+            (tilesQueen state kingTile) ||
         any (\(Tile _ _ p) -> p == Piece Pawn otherPlayer) 
-            (tilesPawnTake board kingTile) ||
+            (tilesPawnTake state kingTile) ||
         any (\(Tile _ _ p) -> p == Piece King otherPlayer) 
-            (tilesKing board kingTile)
+            (tilesKingBase state kingTile)
     where
         kingTile = head (filter (\(Tile _ _ p) -> p == Piece King player) (concat board))
+        (State board _ _) = state
         (Tile i j _) = kingTile
         otherPlayer = oppPlayer player 
 
 -- checks whether a player has been checkmated
 isCheckmate :: State -> Bool
-isCheckmate state = isCheck player board && all (\move -> not (isValidMove move state)) moves
+isCheckmate state = isCheck player state && all (\move -> not (isValidMove move state)) moves
     where 
         (State board _ player) = state
         moves = concat [
-            Move (Tile i j (Piece n p)) <$> tilesPiece board (Tile i j (Piece n p)) 
+            Move (Tile i j (Piece n p)) <$> tilesPiece state (Tile i j (Piece n p)) 
             | Tile i j (Piece n p) <- concat board,
             p == player]
 
 -- checks whether the game is a stalemate
 isStalemate :: State -> Bool
-isStalemate state = not (isCheck player board) && all (\move -> not (isValidMove move state)) moves
+isStalemate state = not (isCheck player state) && all (\move -> not (isValidMove move state)) moves
     where 
         (State board _ player) = state
         moves = concat [
-            Move (Tile i j (Piece n p)) <$> tilesPiece board (Tile i j (Piece n p)) 
+            Move (Tile i j (Piece n p)) <$> tilesPiece state (Tile i j (Piece n p)) 
             | Tile i j (Piece n p) <- concat board,
             p == player]
 
@@ -233,11 +241,17 @@ oppPlayer :: Player -> Player
 oppPlayer White = Black
 oppPlayer Black = White
 
+-- is an opposite color
+isOppPiece :: Player -> Tile -> Bool
+isOppPiece White (Tile _ _ (Piece _ Black)) = True
+isOppPiece Black (Tile _ _ (Piece _ White)) = True
+isOppPiece _ _ = False
+
 -- if that tile is reachable by a player next turn
 isReachable :: Player -> Tile -> Bool
 isReachable _ OutOfBoard = False
 isReachable _ (Tile _ _ Empty) = True
-isReachable player (Tile _ _ (Piece _ otherPlayer)) = otherPlayer /= player
+isReachable player tile = isOppPiece player tile
 
 -- gets tile at coord
 tileAt :: Board -> Int -> Int -> Tile
@@ -245,27 +259,24 @@ tileAt board i j = if 0 <= i && i <= 7 && 0 <= j && j <= 7
     then board!!i!!j else OutOfBoard
 
 -- gets tiles potentially reachable by a knight
-tilesKnight :: Board -> Tile -> [Tile]
-tilesKnight board (Tile i j (Piece _ player)) = filter (isReachable player) [
+tilesKnight :: State -> Tile -> [Tile]
+tilesKnight (State board _ _) (Tile i j (Piece _ player)) = filter (isReachable player) [
     tileAt board (i+2) (j+1), tileAt board (i+1) (j+2),
     tileAt board (i-1) (j+2), tileAt board (i-2) (j+1),
     tileAt board (i-2) (j-1), tileAt board (i-1) (j-2),
     tileAt board (i+1) (j-2), tileAt board (i+2) (j-1)]
 
-tilesPawn :: Board -> Tile -> [Tile]
-tilesPawn board tile = tilesPawnMove board tile ++ tilesPawnTake board tile
+tilesPawn :: State -> Tile -> [Tile]
+tilesPawn state tile = tilesPawnMove state tile ++ tilesPawnTake state tile
 
 -- gets tiles capturable by a pawn
-tilesPawnTake :: Board -> Tile -> [Tile]
-tilesPawnTake board (Tile i j (Piece _ player)) = filter 
-    (\tile -> case tile of Tile _ _ (Piece _ otherPlayer) -> True; _ -> False) [
-        tileAt board (i+r) (j+1), tileAt board (i+r) (j-1)
-    ] where
-        r = if player == White then 1 else -1
-        otherPlayer = oppPlayer player
+tilesPawnTake :: State -> Tile -> [Tile]
+tilesPawnTake (State board _ _) (Tile i j (Piece _ player)) = 
+        filter (isOppPiece player) [tileAt board (i+r) (j+1), tileAt board (i+r) (j-1)] 
+    where r = if player == White then 1 else -1
 
-tilesPawnMove :: Board -> Tile -> [Tile]
-tilesPawnMove board (Tile i j (Piece _ player)) =  
+tilesPawnMove :: State -> Tile -> [Tile]
+tilesPawnMove (State board _ _) (Tile i j (Piece _ player)) =  
     case (i, player) of
         (1, White) -> 
             case (tileAt board 2 j, tileAt board 3 j) of
@@ -281,25 +292,28 @@ tilesPawnMove board (Tile i j (Piece _ player)) =
             then [Tile (i+1) j Empty] else []
         (_, Black) -> if tileAt board (i-1) j == Tile (i-1) j Empty
             then [Tile (i-1) j Empty] else []
+
+-- gets tiles potentially reachable by a king (with castling)
+tilesKing :: State -> Tile -> [Tile]
+tilesKing state tile = tilesKingBase state tile ++ tilesCastle state
                 
-                
+-- gets tiles potentially reachable by a king (no castling)
+tilesKingBase :: State -> Tile -> [Tile]
+tilesKingBase state (Tile i j (Piece _ player)) = filter (isReachable player) [
+        tileAt board (i+1) j, tileAt board (i+1) (j+1),
+        tileAt board i (j+1), tileAt board (i-1) (j+1),
+        tileAt board (i-1) j, tileAt board (i-1) (j-1),
+        tileAt board i (j-1), tileAt board (i+1) (j-1)]
+    where (State board flags player) = state
 
--- gets tiles potentially reachable by a king
-tilesKing :: Board -> Tile -> [Tile]
-tilesKing board (Tile i j (Piece _ player)) = filter (isReachable player) [
-    tileAt board (i+1) j, tileAt board (i+1) (j+1),
-    tileAt board i (j+1), tileAt board (i-1) (j+1),
-    tileAt board (i-1) j, tileAt board (i-1) (j-1),
-    tileAt board i (j-1), tileAt board (i+1) (j-1)]
+tilesQueen :: State -> Tile -> [Tile]
+tilesQueen (State board _ _) tile = concat [tilesAlong board tile dir | dir <- [NO, NE, EA, SE, SO, SW, WE, NW]]
 
-tilesQueen :: Board -> Tile -> [Tile]
-tilesQueen board tile = concat [tilesAlong board tile dir | dir <- [NO, NE, EA, SE, SO, SW, WE, NW]]
+tilesBishop :: State -> Tile -> [Tile]
+tilesBishop (State board _ _) tile = concat [tilesAlong board tile dir | dir <- [NE, SE, SW, NW]]
 
-tilesBishop :: Board -> Tile -> [Tile]
-tilesBishop board tile = concat [tilesAlong board tile dir | dir <- [NE, SE, SW, NW]]
-
-tilesRook :: Board -> Tile -> [Tile]
-tilesRook board tile = concat [tilesAlong board tile dir | dir <- [NO, SO, EA, WE]]
+tilesRook :: State -> Tile -> [Tile]
+tilesRook (State board _ _) tile = concat [tilesAlong board tile dir | dir <- [NO, SO, EA, WE]]
 
 -- gets tiles in "line of sight" along some direction from a starting tile
 tilesAlong :: Board -> Tile -> Direction -> [Tile]
@@ -325,6 +339,20 @@ tilesAlongHelper board (Tile i j _) dir =
             SW -> tileAt board (i-1) (j-1)
             WE -> tileAt board i (j-1)
             NW -> tileAt board (i+1) (j-1)
+
+tilesCastle :: State -> [Tile]
+tilesCastle state =
+    if castle && not (isCheck player state) then
+        (if take 5 ((\(Tile _ _ piece) -> piece) <$> board!!i) == [Piece Rook player, Empty, Empty, Empty, Piece King player] then
+            [Tile i 2 (Piece King player)]
+        else []) ++
+        (if drop 4 ((\(Tile _ _ piece) -> piece) <$> board!!i) == [Piece King player, Empty, Empty, Piece Rook player] then
+            [Tile i 6 (Piece King player)]
+        else [])
+    else [] where
+        (State board flags player) = state
+        castle = if player == White then white_castled flags else black_castled flags
+        i = if player == White then 0 else 7
 
 
 {- UTILITIES -}
