@@ -14,8 +14,8 @@ Additionally we need to keep track of which tiles are under attack, as you can't
 
 # TODO:
 - [x] make king move during castle
-- [ ] make rook move during castle
-- [ ] properly set castle flags after each move
+- [x] make rook move during castle
+- [x] properly set castle flags after each move
 - [ ] properly check for attacked tiles during castle
 - [ ] pawn promotion
 - [ ] en passant
