@@ -69,13 +69,13 @@ startingState = State startingBoard (Flags False False False False (-1) 0) White
 
 testBoard = strsToBoard (reverse [
     "r___k__r",
-    "ppppPppp",
     "________",
     "________",
-    "____q___",
-    "__n_____",
-    "PPPPPPPP",
-    "_NBQKBNR"])
+    "________",
+    "________",
+    "________",
+    "________",
+    "R___K__R"])
 testState = State testBoard (Flags False False False False (-1) 0) Black
 
 checkmateBoard = strsToBoard (reverse [
@@ -176,7 +176,7 @@ play (Move Normal from to) (State board flags player) = State
             Tile 0 0 _ -> flags { whiteCastledQueenSide = True }
             Tile 0 7 _ -> flags { whiteCastledKingSide = True }
             Tile 7 0 _ -> flags { blackCastledQueenSide = True }
-            Tile 7 7 _ -> flags { blackCastledQueenSide = True }
+            Tile 7 7 _ -> flags { blackCastledKingSide = True }
             _ -> flags)
         (oppPlayer player)
     where
@@ -402,10 +402,12 @@ castleMoves :: State -> Tile -> [Move]
 castleMoves state tile =
     let 
         (State board flags player) = state
-        castled = if player == White then whiteCastledKingSide flags else blackCastledKingSide flags
-        i = case (tile, player, castled, isCheck player state) of
-            (Tile 7 4 (Piece King Black), Black, False, False) -> 7
-            (Tile 0 4 (Piece King White), White, False, False) -> 0
+        (castledQueenSide, castledKingSide) = case player of
+            White -> (whiteCastledQueenSide flags, whiteCastledKingSide flags)
+            Black -> (blackCastledQueenSide flags, blackCastledKingSide flags)
+        i = case (tile, player, isCheck player state) of
+            (Tile 7 4 (Piece King Black), Black, False) -> 7
+            (Tile 0 4 (Piece King White), White, False) -> 0
             _ -> -1
     in 
         if i /= -1 then
