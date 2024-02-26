@@ -10,6 +10,7 @@ import Control.Monad ( when )
 
 
 
+
 {- DATA and TYPES -}
 
 -- the game's state is its board state, additional flags, and the current 
@@ -90,7 +91,9 @@ testState = State testBoard (Flags True True True True 2 0) White
 
 
 
+
 {- KEY FUNCTIONS -}
+
 -- is it being attacked by player?
 -- if any tile in x + * (v or ^) are enemy pieces
 isAttacking :: Player -> Tile -> Board -> Bool
@@ -128,7 +131,7 @@ pieceMoves state (Tile i j (Piece King owner)) =
     if player /= owner then [] else
         (Move Normal tile <$>
             filter
-                (\(Tile _ _ p) -> oppColor p (Piece King owner) || p == Empty)
+                (\(Tile _ _ p) -> isOppColor p (Piece King owner) || p == Empty)
                 (pieceTiles board tile))
         ++ (Move Castle tile <$> castleTiles state tile)
     where
@@ -139,7 +142,7 @@ pieceMoves state (Tile i j (Piece Pawn owner)) =
     if player /= owner then [] else
         (Move Normal tile <$>
             (filter
-                (\(Tile _ _ p) -> oppColor p (Piece Pawn owner)) (pieceTiles board tile)
+                (\(Tile _ _ p) -> isOppColor p (Piece Pawn owner)) (pieceTiles board tile)
             ++ pawnMoveTiles board tile))
         ++ (Move EnPassant tile <$> enPassantTiles state tile)
     where
@@ -150,10 +153,9 @@ pieceMoves (State board _ player) tile =
     if player /= owner then [] else
         Move Normal tile <$>
         filter
-                (\(Tile _ _ p) -> oppColor p (Piece King owner) || p == Empty)
+                (\(Tile _ _ p) -> isOppColor p (Piece King owner) || p == Empty)
                 (pieceTiles board tile)
     where (Tile _ _ (Piece _ owner)) = tile
-
 
 -- is player in check?
 isChecked :: Player -> Board -> Bool
@@ -162,7 +164,6 @@ isChecked player board =
     where
         kingTile = head (
             dropWhile (\(Tile _ _ piece) -> piece /= Piece King player) (concat board))
-
 
 -- checks whether state is a checkmate
 isCheckmate :: State -> Bool
@@ -174,8 +175,7 @@ isCheckmate state =
             | Tile i j (Piece ptype owner) <- concat board,
             owner == player]
 
-
--- checks whether state is a checkmate
+-- checks whether state is a stalemate
 isStalemate :: State -> Bool
 isStalemate state =
     not (player `isChecked` board) && all (\move -> not (isValid move state)) moves
@@ -205,6 +205,7 @@ play (Move Normal (Tile i j p) (Tile i' j' _)) (State board flags player) = Stat
             flags { enPassant = j }
         _ -> flags { enPassant = -1 })
     (oppPlayer player)
+
 play (Move Castle (Tile i j p) (Tile i' j' _)) state =
         play (Move Normal (Tile i j p) (Tile i' j' Empty)) (State board' flags player)
     where
@@ -212,6 +213,7 @@ play (Move Castle (Tile i j p) (Tile i' j' _)) state =
         j1 = if j' == 2 then 0 else 7
         j2 = if j' == 2 then 3 else 5
         State board flags player = state
+
 play (Move EnPassant (Tile i j p) (Tile i' j' _)) state =
         play (Move Normal (Tile i j p) (Tile i' j' Empty)) (State board' flags player)
     where
@@ -241,7 +243,6 @@ idMove (Move _ from to) state = head
 
 
 
-
 {- HELPERS -}
 
 -- gets tile at coord
@@ -249,6 +250,7 @@ tileAt :: Board -> Int -> Int -> Tile
 tileAt board i j = if 0 <= i && i <= 7 && 0 <= j && j <= 7
     then board!!i!!j else OutOfBoard
 
+-- sets tile at coord
 setTile :: Tile -> Board -> Board
 setTile (Tile i1 j1 p1) board =
     [[ if i == i1 && j == j1 then
@@ -260,9 +262,10 @@ oppPlayer :: Player -> Player
 oppPlayer White = Black
 oppPlayer Black = White
 
-oppColor :: Piece -> Piece -> Bool
-oppColor (Piece _ a) (Piece _ b) = a /= b
-oppColor _ _ = False
+-- pieces are the opposite colors?
+isOppColor :: Piece -> Piece -> Bool
+isOppColor (Piece _ a) (Piece _ b) = a /= b
+isOppColor _ _ = False
 
 -- gets tiles in "line of sight" along some direction from a starting tile
 alongTiles :: Board -> Tile -> Direction -> [Tile]
@@ -309,11 +312,13 @@ rookTiles :: Board -> Tile -> [Tile]
 rookTiles board tile =
     concat [alongTiles board tile dir | dir <- [NO, SO, EA, WE]]
 
+-- a pawn's capture tiles
 pawnTakeTiles :: Board -> Tile -> [Tile]
 pawnTakeTiles board (Tile i j (Piece _ player)) =
         filter (/= OutOfBoard) [tileAt board (i+r) (j-1), tileAt board (i+r) (j+1)]
     where r = if player == White then 1 else -1
 
+-- a pawn's movement tiles
 pawnMoveTiles :: Board -> Tile -> [Tile]
 pawnMoveTiles board (Tile i j (Piece _ player)) =
     takeWhile (\(Tile _ _ p) -> p == Empty)
@@ -324,6 +329,7 @@ pawnMoveTiles board (Tile i j (Piece _ player)) =
             (_, White) -> (1,1)
             (_, Black) -> (1,-1)
 
+-- a pawn's en passant tiles
 enPassantTiles :: State -> Tile -> [Tile]
 enPassantTiles (State board flags player) (Tile i j (Piece _ owner)) =
         if
@@ -337,6 +343,7 @@ enPassantTiles (State board flags player) (Tile i j (Piece _ owner)) =
     where
         (i',r) = if player == White then (i+1,4) else (i-1,3)
 
+-- a king's castle tiles
 castleTiles :: State -> Tile -> [Tile]
 castleTiles (State board flags player) (Tile i j (Piece _ owner)) =
     if owner /= player then [] else
@@ -360,6 +367,7 @@ castleTiles (State board flags player) (Tile i j (Piece _ owner)) =
             [Tile i' 4 (Piece King player), Tile i' 5 Empty, Tile i' 6 Empty, Tile i' 7 (Piece Rook player)]
         queenAttacked = any (\t -> (oppPlayer player `isAttacking` t) board) (tail queenSide)
         kingAttacked = any (\t -> (oppPlayer player `isAttacking` t) board) (take 3 kingSide)
+
 
 
 
@@ -471,7 +479,7 @@ instance Show Move where
         case mtype of
             Normal -> " --> "
             Castle -> " o-o "
-            EnPassant -> " ep."
+            EnPassant -> " ep. "
         ++ show to
 
 
