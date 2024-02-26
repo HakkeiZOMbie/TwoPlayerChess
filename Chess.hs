@@ -76,16 +76,16 @@ startingState = State startingBoard (Flags True True True True (-1) 0) White
 
 testBoard = strsToBoard (reverse [
     "____k___",
-    "__p_____",
     "________",
     "________",
-    "___P____",
+    "__pP____",
+    "________",
     "________",
     "________",
     "____K___"])
 
 
-testState = State testBoard (Flags True True True True (-1) 0) White
+testState = State testBoard (Flags True True True True 2 0) White
 
 
 
@@ -226,11 +226,16 @@ play (Move EnPassant (Tile i j p) (Tile i' j' _)) state =
 -- - it is a move performable by the piece
 isValid :: Move -> State -> Bool
 isValid move state =
-    not (player `isChecked` board') && move `elem` pieceMoves state from
+    not (player `isChecked` board') && any (\(Move _ t1 t2) -> t1 == from && t2 == to) (pieceMoves state from)
     where
         (Move _ from to) = move
         (State board' _ _) = play move state
         (State _ _ player) = state
+
+-- corrects the move type
+idMove :: Move -> State -> Move
+idMove (Move _ from to) state = head 
+    (filter (\(Move _ t1 t2) -> t1 == from && t2 == to) (pieceMoves state from))
 
 
 
@@ -395,7 +400,7 @@ playGame state = do
                     case readMove board line of
                         Just move ->
                             if isValid move state then
-                                playGame (play move state)
+                                playGame (play (idMove move state) state)
                             else do
                                 putStrLn "Illegal move!"
                                 playGame state

@@ -16,7 +16,8 @@ Additionally we need to keep track of which tiles are under attack, as you can't
 - [x] make king move during castle
 - [x] make rook move during castle
 - [x] properly set castle flags after each move
-- [ ] properly check for attacked tiles during castle
+- [x] properly check for attacked tiles during castle
 - [ ] pawn promotion
-- [ ] en passant
+- [x] en passant -> make readMoves somehow correctly identify en passants
+- [x] alternatively just make main match on only move coords from readMoves and not move type 
 - [ ] 50 move rule
