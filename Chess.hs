@@ -1,26 +1,31 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
-{-# HLINT ignore "Use camelCase" #-}
-{-# HLINT ignore "Redundant lambda" #-}
+{-# HLINT ignore "Use guards" #-}
 {-# HLINT ignore "Use list comprehension" #-}
-{-# HLINT ignore "Use lambda-case" #-}
+module Chess where
 
 import Data.Char ( intToDigit, toLower, isUpper, digitToInt, ord, chr )
 import Data.List ( intersperse )
 import Control.Monad ( when )
 
 
+
+
+
 {- DATA and TYPES -}
 
 -- the game's state is its board state, additional flags, and the current 
 -- move's player
-data State = State Board [Flag] Player
+data State = State Board Flags Player
     deriving (Eq)
 
 type Board = [[Tile]]
 
 -- a move moves a piece from one tile to another tile
-data Move = Move Tile Tile
-    deriving (Eq, Show)
+data Move = Move MoveType Tile Tile
+    deriving (Eq)
+
+data MoveType = Normal | Castle | EnPassant
+    deriving (Eq)
 
 -- Points to 8 other tiles and may have a piece on it
 data Tile = Tile Int Int Piece | OutOfBoard
@@ -42,13 +47,22 @@ data PieceName = Pawn | Rook | Knight | Bishop | Queen | King
     deriving (Eq, Show)
 
 -- additional flags. Not sure how we represent these yet.
-data Flag = Castled | EnPassant | FiftyMoves
-    deriving (Eq, Show)
+data Flags = Flags {
+    whiteCanKingSide :: Bool,
+    whiteCanQueenSide :: Bool,
+    blackCanKingSide :: Bool,
+    blackCanQueenSide :: Bool,
+    enPassant :: Int,
+    fiftyMoves :: Int
+    } deriving (Eq, Show)
+
+
+
+
 
 {- CONSTANTS -}
 
-turn_order = [White, Black]
-starting_board = strsToBoard (reverse [
+startingBoard = strsToBoard (reverse [
     "rnbqkbnr",
     "pppppppp",
     "________",
@@ -57,266 +71,211 @@ starting_board = strsToBoard (reverse [
     "________",
     "PPPPPPPP",
     "RNBQKBNR"])
-starting_state = State starting_board [] White
 
-test_board = strsToBoard (reverse [
-    "rRb_kbnr",
-    "ppppPppp",
-    "________",
-    "________",
-    "____q___",
-    "__n_____",
-    "PPPPPPPP",
-    "_NBQKBNR"])
-test_state = State test_board [] White
+startingState = State startingBoard (Flags True True True True (-1) 0) White
 
-checkmate_board = strsToBoard (reverse [
-    "rnbqkbnr",
-    "pppppppp",
-    "________",
-    "________",
-    "_______q",
-    "________",
-    "PPPPP__P",
-    "RNBQKB_R"])
 
-checkmate_state = State checkmate_board [] White
-
-stalemate_board = strsToBoard (reverse [
-    "k_______",
-    "_______R",
+testBoard = strsToBoard (reverse [
+    "____k___",
+    "________",
+    "________",
+    "__pP____",
     "________",
     "________",
     "________",
-    "________",
-    "_R______",
-    "K_______"])
-
-stalemate_state = State stalemate_board [] White
+    "____K___"])
 
 
--- {- MAIN FUNCTIONS -}
-main :: IO State
-main = playGame starting_state
-
-playGame :: State -> IO State
-playGame state = do
-    printBoard board
-    if isCheckmate state then do
-            putStrLn ("Checkmate! " ++ show (oppPlayer player) ++ " wins")
-            return state
-    else 
-        if isStalemate state then do
-            putStrLn ("Stalemate...")
-            return state
-        else do
-            when (isCheck player board) (putStrLn "You are in check!")
-            putStrLn (show player ++ "'s turn")
-            putStrLn "Please enter a move (for example '1234' for 'move from rank 1 file 2 to rank 3 file 4') or 'q' to quit."
-            line <- getLine
-            if line == "q" then do
-                putStrLn "quitting..."
-                return state
-            else
-                let maybeMove = readMove board line in
-                    case maybeMove of
-                        Just move -> 
-                            if isValidMove move state then 
-                                playGame (play move state)
-                            else do
-                                putStrLn "Illegal move!"
-                                playGame state
-                        Nothing -> do
-                            putStrLn "That's not a move!"
-                            playGame state
-    where (State board flags player) = state
+testState = State testBoard (Flags True True True True 2 0) White
 
 
-    
-
--- -- plays a given move
--- play :: Move -> State -> State
-play :: Move -> State -> State
-play (Move (Tile i1 j1 p1) (Tile i2 j2 _)) (State board flags player) = State 
-    [[ if i == i1 && j == j1 then 
-        Tile i j Empty
-      else if i == i2 && j == j2 then
-        Tile i j p1
-      else Tile i j p | (Tile i j p) <- rows ] | rows <- board] flags (oppPlayer player)
 
 
--- reads move from string
--- string should be in the form "0143" for "move piece in tile 0 1 to tile 4 3"
-readMove :: Board -> String -> Maybe Move
-readMove board [c1,c2,c3,c4] =
-    if all (\c -> '0' <= c && c <= '7') [c1,c2,c3,c4] then
-        Just (Move
-                (tileAt board (digitToInt c1) (digitToInt c2))
-                (tileAt board (digitToInt c3) (digitToInt c4)))
-    else Nothing
-readMove _ _ = Nothing
 
--- checks whether a move is valid
--- valid if
---   1. move does not result in your own king being checked
---   2. move does not land on an unreachable square
-isValidMove :: Move -> State -> Bool
-isValidMove (Move (Tile _ _ Empty) _) _ = False
-isValidMove (Move from to) (State board flags thisPlayer) = 
-        player == thisPlayer &&
-        not (isCheck thisPlayer next_board) && 
-        to `elem` reachable_tiles
+{- KEY FUNCTIONS -}
+
+-- is it being attacked by player?
+-- if any tile in x + * (v or ^) are enemy pieces
+isAttacking :: Player -> Tile -> Board -> Bool
+isAttacking player tile board =
+        any (\(Tile _ _ piece) -> piece == Piece Knight player) (knightTiles board tile) ||
+        any (\(Tile _ _ piece) -> piece == Piece Rook player) (rookTiles board tile) ||
+        any (\(Tile _ _ piece) -> piece == Piece Bishop player) (bishopTiles board tile) ||
+        any (\(Tile _ _ piece) -> piece == Piece Queen player) (queenTiles board tile) ||
+        any (\(Tile _ _ piece) -> piece == Piece King player) (kingTiles board tile) ||
+        any (\(Tile _ _ piece) -> piece == Piece Pawn player)
+            (pawnTakeTiles board (Tile i j (Piece Pawn (oppPlayer player))))
+    where (Tile i j _) = tile
+
+-- gets characteristic tiles for a piece - base tiles only.
+-- for pawns, only attack tiles, and also based on its color
+pieceTiles :: Board -> Tile -> [Tile]
+pieceTiles board tile = case ptype of
+        Pawn -> pawnTakeTiles board tile
+        Rook -> rookTiles board tile
+        Knight -> knightTiles board tile
+        Bishop -> bishopTiles board tile
+        Queen -> queenTiles board tile
+        King -> kingTiles board tile
+    where (Tile i j (Piece ptype owner)) = tile
+
+-- gets moves for a tile
+--  - gets possible moves from a tile
+--  - also handles special cases; i.e. castling and en passant hence the need for state
+--  - naturally, for every piece except pawns and kings this is their pieceTiles
+pieceMoves :: State -> Tile -> [Move]
+-- empty tile have no moves
+pieceMoves _ (Tile _ _ Empty) = []
+-- king moves
+pieceMoves state (Tile i j (Piece King owner)) =
+    if player /= owner then [] else
+        (Move Normal tile <$>
+            filter
+                (\(Tile _ _ p) -> isOppColor p (Piece King owner) || p == Empty)
+                (pieceTiles board tile))
+        ++ (Move Castle tile <$> castleTiles state tile)
     where
-        (State next_board _ _) = play (Move from to) (State board flags thisPlayer)
-        (Tile _ _ (Piece _ player)) = from
-        reachable_tiles = tilesPiece board from
-
--- tiles reachable by the piece (if any) on the tile
-tilesPiece :: Board -> Tile -> [Tile]
-tilesPiece _ (Tile _ _ Empty) = []
-tilesPiece board tile =
-    case name of
-            Pawn -> tilesPawn board tile
-            Rook -> tilesRook board tile
-            Knight -> tilesKnight board tile
-            Bishop -> tilesBishop board tile
-            Queen -> tilesQueen board tile
-            King -> tilesKing board tile
-    where (Tile _ _ (Piece name _)) = tile
-
-
--- checks whether a player is in check
-isCheck :: Player -> Board -> Bool
-isCheck player board =
-        any (\(Tile _ _ p) -> p == Piece Knight otherPlayer) 
-            (tilesKnight board kingTile) ||
-        any (\(Tile _ _ p) -> p == Piece Bishop otherPlayer) 
-            (tilesBishop board kingTile) ||
-        any (\(Tile _ _ p) -> p == Piece Rook otherPlayer)
-            (tilesRook board kingTile) ||
-        any (\(Tile _ _ p) -> p == Piece Queen otherPlayer)
-            (tilesQueen board kingTile) ||
-        any (\(Tile _ _ p) -> p == Piece Pawn otherPlayer) 
-            (tilesPawnTake board kingTile) ||
-        any (\(Tile _ _ p) -> p == Piece King otherPlayer) 
-            (tilesKing board kingTile)
+        (State board flag player) = state
+        tile = Tile i j (Piece King owner)
+-- pawn moves
+pieceMoves state (Tile i j (Piece Pawn owner)) =
+    if player /= owner then [] else
+        (Move Normal tile <$>
+            (filter
+                (\(Tile _ _ p) -> isOppColor p (Piece Pawn owner)) (pieceTiles board tile)
+            ++ pawnMoveTiles board tile))
+        ++ (Move EnPassant tile <$> enPassantTiles state tile)
     where
-        kingTile = head (filter (\(Tile _ _ p) -> p == Piece King player) (concat board))
-        (Tile i j _) = kingTile
-        otherPlayer = oppPlayer player 
+        (State board flag player) = state
+        tile = Tile i j (Piece Pawn owner)
+-- everything else
+pieceMoves (State board _ player) tile =
+    if player /= owner then [] else
+        Move Normal tile <$>
+        filter
+                (\(Tile _ _ p) -> isOppColor p (Piece King owner) || p == Empty)
+                (pieceTiles board tile)
+    where (Tile _ _ (Piece _ owner)) = tile
 
--- checks whether a player has been checkmated
+-- is player in check?
+isChecked :: Player -> Board -> Bool
+isChecked player board =
+        (oppPlayer player `isAttacking` kingTile) board
+    where
+        kingTile = head (
+            dropWhile (\(Tile _ _ piece) -> piece /= Piece King player) (concat board))
+
+-- checks whether state is a checkmate
 isCheckmate :: State -> Bool
-isCheckmate state = isCheck player board && all (\move -> not (isValidMove move state)) moves
-    where 
+isCheckmate state =
+    player `isChecked` board && all (\move -> not (isValid move state)) moves
+    where
         (State board _ player) = state
-        moves = concat [
-            Move (Tile i j (Piece n p)) <$> tilesPiece board (Tile i j (Piece n p)) 
-            | Tile i j (Piece n p) <- concat board,
-            p == player]
+        moves = concat [pieceMoves state (Tile i j (Piece ptype owner))
+            | Tile i j (Piece ptype owner) <- concat board,
+            owner == player]
 
--- checks whether the game is a stalemate
+-- checks whether state is a stalemate
 isStalemate :: State -> Bool
-isStalemate state = not (isCheck player board) && all (\move -> not (isValidMove move state)) moves
-    where 
+isStalemate state =
+    not (player `isChecked` board) && all (\move -> not (isValid move state)) moves
+    where
         (State board _ player) = state
-        moves = concat [
-            Move (Tile i j (Piece n p)) <$> tilesPiece board (Tile i j (Piece n p)) 
-            | Tile i j (Piece n p) <- concat board,
-            p == player]
+        moves = concat [pieceMoves state (Tile i j (Piece ptype owner))
+            | Tile i j (Piece ptype owner) <- concat board,
+            owner == player]
+
+-- plays a move.
+-- - Has 3 types: normal, castle, and enpassant
+play :: Move -> State -> State
+play (Move Normal (Tile i j p) (Tile i' j' _)) (State board flags player) = State
+    (setTile (Tile i' j' p) (setTile (Tile i j Empty) board))
+    (case (i, j, i', j', p) of
+        (0,0,_,_,_) -> flags { whiteCanQueenSide = False }
+        (0,7,_,_,_) -> flags { whiteCanKingSide = False }
+        (7,0,_,_,_) -> flags { blackCanQueenSide = False }
+        (7,7,_,_,_) -> flags { blackCanKingSide = False }
+        (_,_,_,_,Piece King White) ->
+            flags { whiteCanQueenSide = False, whiteCanKingSide = False }
+        (_,_,_,_,Piece King Black) ->
+            flags { blackCanQueenSide = False, blackCanKingSide = False }
+        (1,_,3,_,Piece Pawn White) ->
+            flags { enPassant = j }
+        (6,_,4,_,Piece Pawn Black) ->
+            flags { enPassant = j }
+        _ -> flags { enPassant = -1 })
+    (oppPlayer player)
+
+play (Move Castle (Tile i j p) (Tile i' j' _)) state =
+        play (Move Normal (Tile i j p) (Tile i' j' Empty)) (State board' flags player)
+    where
+        board' = setTile (Tile i j1 Empty) (setTile (Tile i j2 (Piece Rook player)) board)
+        j1 = if j' == 2 then 0 else 7
+        j2 = if j' == 2 then 3 else 5
+        State board flags player = state
+
+play (Move EnPassant (Tile i j p) (Tile i' j' _)) state =
+        play (Move Normal (Tile i j p) (Tile i' j' Empty)) (State board' flags player)
+    where
+        board' = setTile (Tile i j' Empty) board
+        State board flags player = state
 
 
-{- HELPER FUNCTIONS -}
+-- is a move valid?
+-- move is valid if
+-- - it does not result in the playing player's king in check
+-- - it does not land on a non-target tile
+-- - it is a move performable by the piece
+isValid :: Move -> State -> Bool
+isValid move state =
+    not (player `isChecked` board') && any (\(Move _ t1 t2) -> t1 == from && t2 == to) (pieceMoves state from)
+    where
+        (Move _ from to) = move
+        (State board' _ _) = play move state
+        (State _ _ player) = state
 
--- gets the opposite player
-oppPlayer :: Player -> Player
-oppPlayer White = Black
-oppPlayer Black = White
+-- corrects the move type
+idMove :: Move -> State -> Move
+idMove (Move _ from to) state = head 
+    (filter (\(Move _ t1 t2) -> t1 == from && t2 == to) (pieceMoves state from))
 
--- if that tile is reachable by a player next turn
-isReachable :: Player -> Tile -> Bool
-isReachable _ OutOfBoard = False
-isReachable _ (Tile _ _ Empty) = True
-isReachable player (Tile _ _ (Piece _ otherPlayer)) = otherPlayer /= player
+
+
+
+
+{- HELPERS -}
 
 -- gets tile at coord
 tileAt :: Board -> Int -> Int -> Tile
 tileAt board i j = if 0 <= i && i <= 7 && 0 <= j && j <= 7
     then board!!i!!j else OutOfBoard
 
--- gets tiles potentially reachable by a knight
-tilesKnight :: Board -> Tile -> [Tile]
-tilesKnight board (Tile i j (Piece _ player)) = filter (isReachable player) [
-    tileAt board (i+2) (j+1), tileAt board (i+1) (j+2),
-    tileAt board (i-1) (j+2), tileAt board (i-2) (j+1),
-    tileAt board (i-2) (j-1), tileAt board (i-1) (j-2),
-    tileAt board (i+1) (j-2), tileAt board (i+2) (j-1)]
+-- sets tile at coord
+setTile :: Tile -> Board -> Board
+setTile (Tile i1 j1 p1) board =
+    [[ if i == i1 && j == j1 then
+            Tile i j p1
+        else Tile i j p | (Tile i j p) <- rows ] | rows <- board ]
 
-tilesPawn :: Board -> Tile -> [Tile]
-tilesPawn board tile = tilesPawnMove board tile ++ tilesPawnTake board tile
+-- gets the opposite player
+oppPlayer :: Player -> Player
+oppPlayer White = Black
+oppPlayer Black = White
 
--- gets tiles capturable by a pawn
-tilesPawnTake :: Board -> Tile -> [Tile]
-tilesPawnTake board (Tile i j (Piece _ player)) = filter 
-    (\tile -> case tile of Tile _ _ (Piece _ otherPlayer) -> True; _ -> False) [
-        tileAt board (i+r) (j+1), tileAt board (i+r) (j-1)
-    ] where
-        r = if player == White then 1 else -1
-        otherPlayer = oppPlayer player
-
-tilesPawnMove :: Board -> Tile -> [Tile]
-tilesPawnMove board (Tile i j (Piece _ player)) =  
-    case (i, player) of
-        (1, White) -> 
-            case (tileAt board 2 j, tileAt board 3 j) of
-                (Tile 2 _ Empty, Tile 3 _ Empty) -> [Tile 2 j Empty, Tile 3 j Empty]
-                (Tile 2 _ Empty, _) -> [Tile 2 j Empty]
-                _ -> []
-        (6, Black) ->
-            case (tileAt board 5 j, tileAt board 4 j) of
-                (Tile 5 _ Empty, Tile 4 _ Empty) -> [Tile 5 j Empty, Tile 4 j Empty]
-                (Tile 5 _ Empty, _) -> [Tile 5 j Empty]
-                _ -> []
-        (_, White) -> if tileAt board (i+1) j == Tile (i+1) j Empty
-            then [Tile (i+1) j Empty] else []
-        (_, Black) -> if tileAt board (i-1) j == Tile (i-1) j Empty
-            then [Tile (i-1) j Empty] else []
-                
-                
-
--- gets tiles potentially reachable by a king
-tilesKing :: Board -> Tile -> [Tile]
-tilesKing board (Tile i j (Piece _ player)) = filter (isReachable player) [
-    tileAt board (i+1) j, tileAt board (i+1) (j+1),
-    tileAt board i (j+1), tileAt board (i-1) (j+1),
-    tileAt board (i-1) j, tileAt board (i-1) (j-1),
-    tileAt board i (j-1), tileAt board (i+1) (j-1)]
-
-tilesQueen :: Board -> Tile -> [Tile]
-tilesQueen board tile = concat [tilesAlong board tile dir | dir <- [NO, NE, EA, SE, SO, SW, WE, NW]]
-
-tilesBishop :: Board -> Tile -> [Tile]
-tilesBishop board tile = concat [tilesAlong board tile dir | dir <- [NE, SE, SW, NW]]
-
-tilesRook :: Board -> Tile -> [Tile]
-tilesRook board tile = concat [tilesAlong board tile dir | dir <- [NO, SO, EA, WE]]
+-- pieces are the opposite colors?
+isOppColor :: Piece -> Piece -> Bool
+isOppColor (Piece _ a) (Piece _ b) = a /= b
+isOppColor _ _ = False
 
 -- gets tiles in "line of sight" along some direction from a starting tile
-tilesAlong :: Board -> Tile -> Direction -> [Tile]
-tilesAlong board tile dir =
-    case tile of
-        Tile _ _ (Piece _ player) -> filter (isReachable player) (tilesAlongHelper board tile dir)
-        _ -> []
-
--- recursive helper function for tilesAlong
-tilesAlongHelper :: Board -> Tile -> Direction -> [Tile]
-tilesAlongHelper board (Tile i j _) dir =
-    case next_tile of
-        Tile _ _ Empty -> next_tile : tilesAlongHelper board next_tile dir
+alongTiles :: Board -> Tile -> Direction -> [Tile]
+alongTiles board (Tile i j _) dir =
+    case nextTile of
+        Tile _ _ Empty -> nextTile : alongTiles board nextTile dir
         OutOfBoard -> []
-        _ -> [next_tile]
-    where 
-        next_tile = case dir of
+        _ -> [nextTile]
+    where
+        nextTile = case dir of
             NO -> tileAt board (i+1) j
             NE -> tileAt board (i+1) (j+1)
             EA -> tileAt board i (j+1)
@@ -327,10 +286,145 @@ tilesAlongHelper board (Tile i j _) dir =
             NW -> tileAt board (i+1) (j-1)
 
 
-{- UTILITIES -}
+knightTiles :: Board -> Tile -> [Tile]
+knightTiles board (Tile i j _) = filter (/= OutOfBoard) [
+    tileAt board (i+2) (j+1), tileAt board (i+1) (j+2),
+    tileAt board (i-1) (j+2), tileAt board (i-2) (j+1),
+    tileAt board (i-2) (j-1), tileAt board (i-1) (j-2),
+    tileAt board (i+1) (j-2), tileAt board (i+2) (j-1)]
+
+kingTiles :: Board -> Tile -> [Tile]
+kingTiles board (Tile i j _) = filter (/= OutOfBoard) [
+    tileAt board (i+1) j, tileAt board (i+1) (j+1),
+    tileAt board i (j+1), tileAt board (i-1) (j+1),
+    tileAt board (i-1) j, tileAt board (i-1) (j-1),
+    tileAt board i (j-1), tileAt board (i+1) (j-1)]
+
+queenTiles :: Board -> Tile -> [Tile]
+queenTiles board tile =
+    concat [alongTiles board tile dir | dir <- [NO, NE, EA, SE, SO, SW, WE, NW]]
+
+bishopTiles :: Board -> Tile -> [Tile]
+bishopTiles board tile =
+    concat [alongTiles board tile dir | dir <- [NE, SE, SW, NW]]
+
+rookTiles :: Board -> Tile -> [Tile]
+rookTiles board tile =
+    concat [alongTiles board tile dir | dir <- [NO, SO, EA, WE]]
+
+-- a pawn's capture tiles
+pawnTakeTiles :: Board -> Tile -> [Tile]
+pawnTakeTiles board (Tile i j (Piece _ player)) =
+        filter (/= OutOfBoard) [tileAt board (i+r) (j-1), tileAt board (i+r) (j+1)]
+    where r = if player == White then 1 else -1
+
+-- a pawn's movement tiles
+pawnMoveTiles :: Board -> Tile -> [Tile]
+pawnMoveTiles board (Tile i j (Piece _ player)) =
+    takeWhile (\(Tile _ _ p) -> p == Empty)
+        (filter (/= OutOfBoard) [tileAt board (i+di*r) j | di <- [1..n]])
+    where (n, r) = case (i, player) of
+            (1, White) -> (2,1)
+            (6, Black) -> (2,-1)
+            (_, White) -> (1,1)
+            (_, Black) -> (1,-1)
+
+-- a pawn's en passant tiles
+enPassantTiles :: State -> Tile -> [Tile]
+enPassantTiles (State board flags player) (Tile i j (Piece _ owner)) =
+        if
+            player == owner &&
+            enPassant flags /= -1 &&
+            abs (enPassant flags - j) == 1 &&
+            i == r
+        then
+            [Tile i' (enPassant flags) Empty]
+        else []
+    where
+        (i',r) = if player == White then (i+1,4) else (i-1,3)
+
+-- a king's castle tiles
+castleTiles :: State -> Tile -> [Tile]
+castleTiles (State board flags player) (Tile i j (Piece _ owner)) =
+    if owner /= player then [] else
+        (if canQueenSide && queenSide == queenConfig && not queenAttacked then
+            [Tile i 2 Empty]
+        else [])++
+        (if canKingSide && kingSide == kingConfig && not kingAttacked then
+            [Tile i 6 Empty]
+        else [])
+    where
+        canQueenSide =
+            if player == White then whiteCanQueenSide flags else blackCanQueenSide flags
+        canKingSide =
+            if player == White then whiteCanKingSide flags else blackCanKingSide flags
+        queenSide = take 5 (board!!i)
+        kingSide = drop 4 (board!!i)
+        i' = if player == White then 0 else 7
+        queenConfig =
+            [Tile i' 0 (Piece Rook player), Tile i' 1 Empty, Tile i' 2 Empty, Tile i' 3 Empty, Tile i 4 (Piece King player)]
+        kingConfig =
+            [Tile i' 4 (Piece King player), Tile i' 5 Empty, Tile i' 6 Empty, Tile i' 7 (Piece Rook player)]
+        queenAttacked = any (\t -> (oppPlayer player `isAttacking` t) board) (tail queenSide)
+        kingAttacked = any (\t -> (oppPlayer player `isAttacking` t) board) (take 3 kingSide)
+
+
+
+
+
+{- MAINS -}
+
+main :: IO State
+main = playGame startingState
+
+playGame :: State -> IO State
+playGame state = do
+    print state
+    if isCheckmate state then do
+            putStrLn ("Checkmate! " ++ show (oppPlayer player) ++ " wins")
+            return state
+    else
+        if isStalemate state then do
+            putStrLn "Stalemate..."
+            return state
+        else do
+            when (player `isChecked` board) (putStrLn "You are in check!")
+            putStrLn (show player ++ "'s turn")
+            putStrLn "Please enter a move (for example '1234' for 'move from rank 1 file 2 to rank 3 file 4') or 'q' to quit."
+            putStrLn "Alternatively query moves for a tile by entering ? then the tile coords. (e.g. ?32)"
+            line <- getLine
+            case line of
+                "q" -> do
+                    putStrLn "quitting..."
+                    return state
+                ['?',i,j] -> do
+                    case readTile board [i,j] of
+                        Just tile -> do
+                            print (filter (\m -> isValid m state) (pieceMoves state tile))
+                        Nothing -> do
+                            putStrLn "wrong format!"
+                    playGame state
+                _ ->
+                    case readMove board line of
+                        Just move ->
+                            if isValid move state then
+                                playGame (play (idMove move state) state)
+                            else do
+                                putStrLn "Illegal move!"
+                                playGame state
+                        Nothing -> do
+                            putStrLn "wrong format!"
+                            playGame state
+    where (State board flags player) = state
+
+
+
+
+{- IO UTILITIES -}
+
 -- getting pieces from chars. Used in board initialization
 chrToPiece :: Char -> Piece
-chrToPiece char = case lower_char of
+chrToPiece char = case lowerChar of
     'p' -> Piece Pawn player
     'r' -> Piece Rook player
     'n' -> Piece Knight player
@@ -339,8 +433,31 @@ chrToPiece char = case lower_char of
     'k' -> Piece King player
     _ -> Empty
     where
-        lower_char = toLower char
+        lowerChar = toLower char
         player = if isUpper char then White else Black
+
+
+-- reads move from string
+-- string should be in the form "0143" for "move piece in tile 0 1 to tile 4 3"
+readMove :: Board -> String -> Maybe Move
+readMove board [c1,c2,c3,c4] =
+    if all (\c -> '0' <= c && c <= '7') [c1,c2,c3,c4] then
+        let
+            Tile i1 j1 p1 = tileAt board (digitToInt c1) (digitToInt c2)
+            Tile i2 j2 p2 = tileAt board (digitToInt c3) (digitToInt c4)
+        in case (p1, abs (j1-j2)) of
+            (Piece King _, 2) -> Just (Move Castle (Tile i1 j1 p1) (Tile i2 j2 p2))
+            _ -> Just (Move Normal (Tile i1 j1 p1) (Tile i2 j2 p2))
+    else Nothing
+readMove _ _ = Nothing
+
+-- reads tile from string
+readTile :: Board -> String -> Maybe Tile
+readTile board [c1,c2] =
+    if all (\c -> '0' <= c && c <= '7') [c1,c2] then
+        Just (tileAt board (digitToInt c1) (digitToInt c2))
+    else Nothing
+readTile _ _ = Nothing
 
 -- converts a list of strings to a board
 strsToBoard :: [String] -> Board
@@ -356,20 +473,34 @@ instance Show Tile where
         intToDigit i, ',',
         intToDigit j, ')']
 
+instance Show Move where
+    show :: Move -> String
+    show (Move mtype from to) = show from ++
+        case mtype of
+            Normal -> " --> "
+            Castle -> " o-o "
+            EnPassant -> " ep. "
+        ++ show to
+
+
+instance Show State where
+    show :: State -> String
+    show (State board flags player) =
+        printBoard board ++ "\nflags: " ++ show flags ++ "\ncurrent turn" ++ show player
+
 -- prints out the board
-printBoard :: Board -> IO ()
-printBoard board = putStrLn $ concat [intToDigit i : ' ' : intersperse ' ' (printTile <$> board!!i) ++ "\n" | i <- [7,6..0]] ++ "/ 0 1 2 3 4 5 6 7"
+printBoard :: Board -> String
+printBoard board = concat [intToDigit i : ' ' : intersperse ' ' (printTile <$> board!!i) ++ "\n" | i <- [7,6..0]] ++ "/ 0 1 2 3 4 5 6 7"
 
 -- prints out a tile
 printTile :: Tile -> Char
 printTile OutOfBoard = 'X'
 printTile (Tile _ _ Empty) = '☐'
-printTile (Tile _ _ (Piece name player)) = chr ((if player == Black then 6 else 0) + ord (
-    case name of
+printTile (Tile _ _ (Piece ptype owner)) = chr ((if owner == Black then 6 else 0) + ord (
+    case ptype of
         Pawn -> '♙'
         Rook -> '♖'
         Knight -> '♘'
         Bishop -> '♗'
         Queen -> '♕'
         King -> '♔'))
-

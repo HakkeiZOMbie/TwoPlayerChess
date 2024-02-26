@@ -11,3 +11,13 @@ Should be in a canonical form. Aside from the board state, we must keep track of
   3. 50 move draw rule.
 
 Additionally we need to keep track of which tiles are under attack, as you can't move the king into check.
+
+# TODO:
+- [x] make king move during castle
+- [x] make rook move during castle
+- [x] properly set castle flags after each move
+- [x] properly check for attacked tiles during castle
+- [ ] pawn promotion
+- [x] en passant -> make readMoves somehow correctly identify en passants
+- [x] alternatively just make main match on only move coords from readMoves and not move type 
+- [ ] 50 move rule
