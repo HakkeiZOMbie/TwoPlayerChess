@@ -77,7 +77,7 @@ startingState = State startingBoard (Flags True True True True (-1) 0) White
 
 testBoard = strsToBoard (reverse [
     "____k___",
-    "________",
+    "_P______",
     "________",
     "__pP____",
     "________",
@@ -240,6 +240,10 @@ idMove (Move _ from to) state = head
     (filter (\(Move _ t1 t2) -> t1 == from && t2 == to) (pieceMoves state from))
 
 
+isPromotion :: Move -> Bool
+isPromotion (Move _ (Tile _ _ (Piece Pawn player)) (Tile i' _ _)) =
+    player == White && i' == 7 || player == Black && i' == 0
+isPromotion _ = False
 
 
 
@@ -408,7 +412,24 @@ playGame state = do
                     case readMove board line of
                         Just move ->
                             if isValid move state then
-                                playGame (play (idMove move state) state)
+                                let move' = idMove move state
+                                    Move mtype (Tile i j _) to = move' 
+                                in if isPromotion move' then do
+                                    putStrLn "Promote pawn to? (r|n|b|q):"
+                                    pieceStr <- getLine
+                                    let piece = (case pieceStr of
+                                            "r" -> Piece Rook player
+                                            "n" -> Piece Knight player
+                                            "b" -> Piece Bishop player
+                                            "q" -> Piece Queen player
+                                            _ -> Empty)
+                                    if piece == Empty then do
+                                        putStrLn "invalid piece!"
+                                        playGame state
+                                    else
+                                        playGame (play (Move mtype (Tile i j piece) to) state)
+                                else
+                                    playGame (play move' state)
                             else do
                                 putStrLn "Illegal move!"
                                 playGame state
@@ -481,7 +502,6 @@ instance Show Move where
             Castle -> " o-o "
             EnPassant -> " ep. "
         ++ show to
-
 
 instance Show State where
     show :: State -> String
