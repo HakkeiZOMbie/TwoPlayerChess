@@ -393,7 +393,6 @@ playGame state = do
             return state
         else do
             when (player `isChecked` board) (putStrLn "You are in check!")
-            putStrLn (show player ++ "'s turn")
             putStrLn "Please enter a move (for example '1234' for 'move from rank 1 file 2 to rank 3 file 4') or 'q' to quit."
             putStrLn "Alternatively query moves for a tile by entering ? then the tile coords. (e.g. ?32)"
             line <- getLine
@@ -408,7 +407,7 @@ playGame state = do
                         Nothing -> do
                             putStrLn "wrong format!"
                     playGame state
-                _ ->
+                _ -> -- oh my goodness the indent
                     case readMove board line of
                         Just move ->
                             if isValid move state then
@@ -506,7 +505,7 @@ instance Show Move where
 instance Show State where
     show :: State -> String
     show (State board flags player) =
-        printBoard board ++ "\nflags: " ++ show flags ++ "\ncurrent turn" ++ show player
+        printBoard board ++ "\nflags: " ++ show flags ++ "\n" ++ show player ++"'s turn"
 
 -- prints out the board
 printBoard :: Board -> String
