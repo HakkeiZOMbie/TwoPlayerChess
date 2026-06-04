@@ -1,5 +1,5 @@
 # TwoPlayerChess
-Two player chess in Haskell for UBC CPSC 312.
+Two player chess in Haskell.
 
 # Game Interface
 For now, a terminal app that starts the game, asks white for the next move, plays it, asks black for the next move, repeat.
